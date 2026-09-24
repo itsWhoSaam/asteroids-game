@@ -15,6 +15,7 @@ from constants import (
 from asteroid import Asteroid
 from asteroidfield import AsteroidField
 from economy import Economy
+from drones import DroneBay, OfflineBanner, drone_dps
 from game import Game
 from hud import draw_hud, draw_game_over, hud_font, points_for
 from logger import log_state, log_event
@@ -178,6 +179,15 @@ def main():
     game = Game(player1, asteroids, shots)
     economy = Economy()
     shop = Shop(economy, player1)  # applies any save-loaded effect levels
+    drones = DroneBay(economy)  # turret count follows the Drones level
+    # One-time boot grant (drones PR): time away pays through the capped
+    # offline math, priced off the saved Drones level. A missing
+    # idle_last_seen (fresh install, pre-drones save) grants nothing.
+    offline_banner = OfflineBanner(
+        economy.claim_offline(drone_dps(economy.levels["drone"]))
+    )
+    if offline_banner.amount > 0:
+        log_event("offline_earnings", amount=offline_banner.amount)
 
     prev_asteroids = set(asteroids)
     autosave_timer = 0.0
@@ -229,6 +239,11 @@ def main():
         updatable.update(dt)
         # player1.update(dt)
 
+        # Drone turrets fire real shots into the same pipeline (drones PR):
+        # the sweep below and the destruction diff treat them exactly like
+        # the player's own — one destruction path pays every source.
+        drones.update(dt, player1, asteroids, shots)
+
         handle_collisions(asteroids, shots, player1, game)
 
         # Destruction → credits: diff this frame's field against the last,
@@ -252,6 +267,9 @@ def main():
 
         draw_hud(screen, game.score, lives=game.lives)
         draw_credits(screen, economy.credits)
+        offline_banner.update(dt)
+        offline_banner.draw(screen)
+        drones.draw(screen, player1)
         shop.draw_panel(screen)
         if game.state == "game_over":
             draw_game_over(screen, game.score, new_high=game.new_high)

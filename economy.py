@@ -13,7 +13,12 @@ import json
 import sys
 import time
 
-from constants import INCOME_MULT_PER_LEVEL, UPGRADE_COSTS
+from constants import (
+    INCOME_MULT_PER_LEVEL,
+    OFFLINE_CAP_SECONDS,
+    OFFLINE_RATE,
+    UPGRADE_COSTS,
+)
 from hud import SAVE_PATH, load_save, points_for, write_save
 
 
@@ -94,6 +99,40 @@ class Economy:
         self.credits -= cost
         self.levels[name] += 1
         return True
+
+    # --- offline earnings -------------------------------------------------
+
+    def apply_offline(self, elapsed_s, drone_dps):
+        """Capped idle payout for time away — the boot grant's math.
+
+        ``drone_dps`` is the fleet's estimated credits/second (see
+        drones.drone_dps): one instant-kill shot per DRONE_FIRE_INTERVAL_S
+        at the DRONE_CREDITS_PER_SHOT estimate. Time beyond
+        OFFLINE_CAP_SECONDS pays nothing extra and OFFLINE_RATE halves the
+        whole grant — drones work overtime at half pay. Negative elapsed
+        (clock skew) clamps to zero; the ledger only ever grows here.
+        """
+        capped = min(max(elapsed_s, 0.0), OFFLINE_CAP_SECONDS)
+        earned = drone_dps * capped * OFFLINE_RATE
+        self.credits += earned
+        return earned
+
+    def claim_offline(self, drone_dps, now=None):
+        """The once-per-boot grant: elapsed resolved from idle_last_seen.
+
+        A missing stamp (fresh install, or a save from before the drones
+        PR — last_seen stays 0.0) grants nothing and raises nothing. A
+        granted claim re-stamps last_seen so the in-session autosave can't
+        double-pay the same window; the next save() persists the stamp.
+        """
+        if now is None:
+            now = time.time()
+        if self.last_seen <= 0.0:
+            return 0.0
+        earned = self.apply_offline(now - self.last_seen, drone_dps)
+        if earned > 0:
+            self.last_seen = now
+        return earned
 
     # --- persistence ------------------------------------------------------
 
