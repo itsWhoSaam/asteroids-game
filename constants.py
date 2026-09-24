@@ -24,6 +24,15 @@ SCORE_LARGE = 20
 SCORE_MEDIUM = 50
 SCORE_SMALL = 100
 
+# Lives & respawn (engagement F2): a hit costs a life, not the process.
+PLAYER_START_LIVES = 3
+PLAYER_INVULNERABILITY_SECONDS = 2.0
+PLAYER_BLINK_HZ = 4  # the grace-window blink toggles at this rate
+
+# Game-over overlay (engagement F2), centered on the screen.
+GAME_OVER_FONT_SIZE = 48
+GAME_OVER_LINE_STEP = 60
+
 # HUD text (engagement F1), top-left corner.
 HUD_FONT_SIZE = 28
 HUD_MARGIN = 12
