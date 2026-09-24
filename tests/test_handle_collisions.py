@@ -49,3 +49,29 @@ def test_player_collision_ends_game_with_no_shots_in_flight(tmp_path):
         handle_collisions(asteroids, shots, player)
 
     assert any(event["type"] == "player_hit" for event in read_events(tmp_path))
+
+
+def test_two_overlapping_shots_split_asteroid_exactly_once(tmp_path):
+    """B3: a second overlapping shot in the same frame must not re-split an
+    asteroid the first shot already killed (which yielded four children and
+    duplicate events).
+
+    Group iteration walks a copied list, so the killed asteroid object stays
+    reachable for the rest of the sweep; the liveness guards and the
+    idempotent split() keep the frame honest.
+    """
+    pygame.init()
+    _, _, asteroids, shots = make_groups()
+
+    player = Player(100, 660)  # far from the asteroid: no player hit
+    Asteroid(640, 360, 40)
+    Shot(640, 360)
+    Shot(640, 360)  # both shots overlap the asteroid
+
+    handle_collisions(asteroids, shots, player)
+
+    # exactly one split: two children, not four
+    assert len(asteroids) == 2
+    events = read_events(tmp_path)
+    assert sum(event["type"] == "asteroid_split" for event in events) == 1
+    assert sum(event["type"] == "asteroid_shot" for event in events) == 1

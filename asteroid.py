@@ -22,6 +22,8 @@ class Asteroid(CircleShape):
         self.position += self.velocity * dt
 
     def split(self):
+        if not self.alive():
+            return
         self.kill()
         if self.radius <= ASTEROID_MIN_RADIUS:
             return
