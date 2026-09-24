@@ -168,3 +168,44 @@ SHAKE_STOP_EPSILON = 0.1           # below this the shake snaps fully still
 SHAKE_MAX_MAGNITUDE = 20           # px cap so stacked kicks stay sane
 SHAKE_PLAYER_DEATH = 14.0          # px — losing a life rocks the screen
 SHAKE_LARGE_ASTEROID = 6.0         # px — a large rock's death, scaled by size
+
+# Sound & mute (engagement F6): every SFX is synthesized at startup from
+# stdlib array/math envelopes — no binary assets, no numpy, no new runtime
+# dependencies. Builders render into the mixer's init format (stereo signed
+# 16-bit at CD rate); every duration and pitch lives in this block so the
+# idle-economy follow-up can retune without touching sound.py's logic.
+SFX_SAMPLE_RATE = 44100
+SFX_FORMAT = -16                   # signed 16-bit samples
+SFX_CHANNELS = 2                   # stereo
+SFX_NOISE_SEED = 7                 # fixed: explosion buffers are deterministic
+
+SFX_SHOOT = "shoot"
+SFX_EXPLOSION_SMALL = "explosion_small"
+SFX_EXPLOSION_MEDIUM = "explosion_medium"
+SFX_EXPLOSION_LARGE = "explosion_large"
+SFX_POWERUP = "powerup"
+SFX_GAME_OVER = "game_over"
+
+# Shoot: a short descending blip (Hz start → end, peak amplitude).
+SFX_SHOOT_DURATION = 0.10
+SFX_SHOOT_SWEEP = (900.0, 300.0)
+SFX_SHOOT_VOLUME = 0.5
+
+# Explosions: noise over a low thump, pitched and sized per asteroid tier —
+# small rocks crack bright and fast, large ones rumble longer.
+SFX_EXPLOSION_VOLUME = 0.6
+SFX_EXPLOSION_TIERS = {
+    "small":  {"duration": 0.18, "thump_hz": 220.0, "brightness": 0.8},
+    "medium": {"duration": 0.30, "thump_hz": 120.0, "brightness": 0.6},
+    "large":  {"duration": 0.45, "thump_hz": 70.0,  "brightness": 0.5},
+}
+
+# Power-up: a rising chirp.
+SFX_POWERUP_DURATION = 0.22
+SFX_POWERUP_SWEEP = (300.0, 900.0)
+SFX_POWERUP_VOLUME = 0.5
+
+# Game over: a long descending tone, the run winding down.
+SFX_GAME_OVER_DURATION = 0.8
+SFX_GAME_OVER_SWEEP = (440.0, 90.0)
+SFX_GAME_OVER_VOLUME = 0.6

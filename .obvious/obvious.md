@@ -20,7 +20,7 @@ Headless run (sandbox/CI — no display needed):
 SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy uv run main.py
 ```
 
-The game loops at 60 FPS until the window QUIT event (or Q at the game-over screen). A player-asteroid collision costs one of three lives — the ship respawns centered with a 2s invulnerability blink — and at zero lives a game-over overlay appears (R restarts, Q quits). Destroyed non-small asteroids have a 15% chance to drop a timed pickup: SHIELD absorbs one hit (ring on the ship), RAPID cuts the shoot cooldown ×0.4, TRIPLE fires a three-way spread — each lasts 8s (R-free retuning lives in `constants.py`). Kill with timeout/interrupt for headless runs.
+The game loops at 60 FPS until the window QUIT event (or Q at the game-over screen). A player-asteroid collision costs one of three lives — the ship respawns centered with a 2s invulnerability blink — and at zero lives a game-over overlay appears (R restarts, Q quits). Destroyed non-small asteroids have a 15% chance to drop a timed pickup: SHIELD absorbs one hit (ring on the ship), RAPID cuts the shoot cooldown ×0.4, TRIPLE fires a three-way spread — each lasts 8s (R-free retuning lives in `constants.py`). Sound effects are synthesized procedurally at startup (no binary assets) — shoot, three explosion pitches by asteroid size, pickup, game over — and `M` toggles mute (persisted in `game_save.json`; a MUTED indicator shows top-right while muted). Kill with timeout/interrupt for headless runs.
 
 ## Local Verification
 
@@ -33,6 +33,7 @@ The game loops at 60 FPS until the window QUIT event (or Q at the game-over scre
   - `uv run python .obvious/evidence/proof_f3.py` — F3 evidence: wave banner + HUD wave-slot PNGs to `/tmp/obv-evidence/`.
   - `uv run python .obvious/evidence/proof_f4.py` — F4 evidence: pickup drop + shield-ring PNGs to `/tmp/obv-evidence/` (also logs `powerup_spawned`/`powerup_collected` to the repo-root events log).
   - `uv run python .obvious/evidence/proof_f5.py` — F5 evidence: burst before/after PNGs + a two-frame shake-offset pair to `/tmp/obv-evidence/` (offsets printed and asserted different).
+  - `uv run python .obvious/evidence/proof_f6.py` — F6 evidence: unmuted/muted HUD pair (MUTED indicator top-right after a simulated M press) to `/tmp/obv-evidence/`, with mixer format, SFX table, and persisted save asserted.
 
 ## Codebase Map
 
@@ -51,6 +52,7 @@ Flat, single-app repo — all source at root (depth ≤ 2, no sub-apps):
 | `powerups.py` | `PowerUp` pickups — drifting SHIELD/RAPID/TRIPLE drops; pure `drops_powerup`/`pick_type` rolls; effect data lives in `constants.py` tables (engagement F4) |
 | `particles.py` | `Particle` debris + `Shake` — pure `burst_count` sizing, `burst()` spawner wired at the sweep's destruction site and in `Game.player_hit`; shake decays exponentially and offsets the draw origin only (engagement F5) |
 | `shot.py` | `Shot` — player bullets |
+| `sound.py` | Procedural SFX — stdlib `array`/`math` envelopes in `pygame.mixer.Sound`, built at startup; `play()`/`play_explosion()` degrade to a silent no-op on any mixer failure; mute state set via `set_muted` (engagement F6) |
 | `hud.py` | `Score` — run score + persistent high score (`game_save.json`), `points_for()` size table, `draw_hud()` overlay, `draw_game_over()` overlay, `WaveBanner` flash (engagement F3) |
 | `logger.py` | `log_state()` / `log_event()` — JSONL state & event logging to repo root |
 | `game_events.jsonl` | Committed event log from a prior run (runtime artifact) |

@@ -15,6 +15,7 @@ from constants import (
 )
 from hud import SAVE_PATH, Score
 from logger import log_event
+import sound
 from particles import burst
 
 
@@ -54,6 +55,13 @@ class Game:
     @property
     def muted(self):
         return self._score.muted
+
+    def toggle_mute(self):
+        """Flip and persist the mute preference (F6); returns the new state.
+
+        Playback-only: the sim never stops for audio, so this is not run
+        state — main() relays the return value to the sound module."""
+        return self._score.set_muted(not self.muted)
 
     @property
     def new_high(self):
@@ -96,6 +104,7 @@ class Game:
         """Run ends: flip state; final score vs high score is on the overlay."""
         self.state = "game_over"
         log_event("game_over", score=self.score, high_score=self.high_score)
+        sound.play(sound.SFX_GAME_OVER)  # F6: the run winding down
 
     def restart(self):
         """Full reset: counters to wave-1 start AND world cleared."""

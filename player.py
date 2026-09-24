@@ -19,6 +19,7 @@ from constants import (
     SCREEN_WIDTH,
 )
 from powerups import PowerUpType
+import sound
 from shot import Shot
 
 
@@ -167,6 +168,9 @@ class Player(CircleShape):
             * (POWERUP_RAPID_COOLDOWN_MULT if self.has_rapid else 1.0),
             PLAYER_SHOOT_COOLDOWN_FLOOR_SECONDS,
         )
+        # F6: one blip per trigger pull, even on a TRIPLE volley. A no-op
+        # whenever audio is unavailable or muted — sound.play never raises.
+        sound.play(sound.SFX_SHOOT)
         if self.has_triple:
             # Three-way spread: the center shot plus one on each side (F4).
             for spread in (-POWERUP_TRIPLE_SPREAD, 0.0, POWERUP_TRIPLE_SPREAD):

@@ -29,6 +29,7 @@ from particles import Particle, Shake, burst
 from player import Player
 from powerups import PowerUp, drops_powerup, pick_type
 from shop import Shop
+import sound
 from shot import Shot
 
 
@@ -65,6 +66,7 @@ def handle_collisions(asteroids, shots, player1, game, powerups, shake=None):
                 # rocks the screen, mildly and scaled to its size. One
                 # destruction path: this is where rocks die.
                 burst(asteroid.position, asteroid.radius)
+                sound.play_explosion(asteroid.radius)  # F6: pitched by size
                 if asteroid.radius >= ASTEROID_MAX_RADIUS and shake is not None:
                     shake.kick(
                         SHAKE_LARGE_ASTEROID * asteroid.radius / ASTEROID_MAX_RADIUS
@@ -91,6 +93,7 @@ def handle_collisions(asteroids, shots, player1, game, powerups, shake=None):
                 powerup.kill()
                 player1.activate_powerup(powerup.kind)
                 log_event("powerup_collected", powerup_type=powerup.kind.value)
+                sound.play(sound.SFX_POWERUP)  # F6: the pickup jingle
 
 
 def maybe_advance_wave(game, field, banner):
@@ -212,6 +215,7 @@ def draw_credits(screen, credits):
 
 def main():
     pygame.init()
+    sound.init()  # F6: mixer + SFX; any failure degrades to a silent no-op
     game_clk = pygame.time.Clock()
     dt = 0
     screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
@@ -238,6 +242,9 @@ def main():
     # and rocks die.
     shake = Shake()
     game = Game(player1, asteroids, shots, powerups, particles=particles, shake=shake)
+    # F6: start from the persisted mute preference — the sound module only
+    # learns it here; playback stays suppressed either way.
+    sound.set_muted(game.muted)
 
     # The field reads the wave off the Game (F3), so it is built after one
     # exists. The WAVE 1 flash arms at game start.
@@ -272,6 +279,11 @@ def main():
                 economy.save()
                 pygame.quit()
                 return
+            if event.type == pygame.KEYDOWN and event.key == pygame.K_m:
+                # F6: mute is playback-only, works in any state, and persists
+                # through the save loader. Kept in this event-pump block;
+                # later features add their input alongside it.
+                sound.set_muted(game.toggle_mute())
             if event.type == pygame.KEYDOWN and game.state == "game_over":
                 # R restarts, Q quits (engagement F2). Kept in this event-pump
                 # block; later features add their input alongside it.
@@ -349,7 +361,8 @@ def main():
         screen.fill("black")
         screen.blit(world, shake.offset())
 
-        draw_hud(screen, game.score, lives=game.lives, wave=game.wave)
+        draw_hud(screen, game.score, lives=game.lives, wave=game.wave,
+                 muted=game.muted)
         draw_credits(screen, economy.credits)
         offline_banner.update(dt)
         offline_banner.draw(screen)
