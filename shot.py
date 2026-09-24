@@ -1,5 +1,6 @@
 import pygame
 from circleshape import CircleShape
+from comicfx import chromatic_circle
 from constants import ASTEROID_MAX_RADIUS, LINE_WIDTH, PALETTE, SHOT_RADIUS
 
 
@@ -8,7 +9,8 @@ class Shot(CircleShape):
         super().__init__(x, y, SHOT_RADIUS)
 
     def draw(self, screen):
-        pygame.draw.circle(screen, PALETTE["shot"], self.position, self.radius, LINE_WIDTH)
+        # Inked comic tracer (V2): same stack, scaled to the tiny radius.
+        chromatic_circle(screen, PALETTE["shot"], self.position, self.radius, LINE_WIDTH)
 
     def update(self, dt):
         self.position += self.velocity * dt
