@@ -33,6 +33,18 @@ PLAYER_BLINK_HZ = 4  # the grace-window blink toggles at this rate
 GAME_OVER_FONT_SIZE = 48
 GAME_OVER_LINE_STEP = 60
 
+# Wave progression (engagement F3): clearing the field starts the next wave,
+# tightening the spawn cadence and shifting the asteroid speed band up. The
+# wave-1 bases are the 0.8s cadence and 40–100 px/s band the field used to
+# hardcode inline.
+WAVE_SPAWN_DECAY = 0.9            # spawn interval multiplier per wave
+WAVE_SPAWN_INTERVAL_FLOOR = 0.3   # seconds — waves never spawn faster than this
+ASTEROID_SPEED_MIN = 40           # wave-1 minimum asteroid speed (px/s)
+ASTEROID_SPEED_MAX = 100          # wave-1 maximum asteroid speed (px/s)
+WAVE_SPEED_MIN_STEP = 10          # minimum-speed increase per wave
+WAVE_SPEED_MAX_STEP = 15          # maximum-speed increase per wave
+WAVE_BANNER_SECONDS = 2.0         # WAVE n banner flash duration
+
 # HUD text (engagement F1), top-left corner.
 HUD_FONT_SIZE = 28
 HUD_MARGIN = 12
@@ -121,3 +133,38 @@ OFFLINE_RATE = 0.5
 
 # The one-time 'Offline earnings +N' HUD line fades out over this long.
 OFFLINE_BANNER_SECONDS = 4.0
+
+# Power-ups (engagement F4): a destroyed non-small rock can drop a timed
+# pickup. Effects are data-driven — every duration and magnitude lives in
+# these tables (keys match PowerUpType values in powerups.py) so the
+# idle-economy follow-up can retune or extend them without touching
+# gameplay code.
+POWERUP_DROP_CHANCE = 0.15         # chance a destroyed non-small rock drops one
+POWERUP_DURATION_S = {
+    "shield": 8.0,
+    "rapid": 8.0,
+    "triple": 8.0,
+}
+POWERUP_RAPID_COOLDOWN_MULT = 0.4  # RAPID multiplies the shoot cooldown
+POWERUP_TRIPLE_SPREAD = 20.0       # degrees between the three TRIPLE shots
+POWERUP_SHIELD_HITS = 1            # hits one shield absorbs
+POWERUP_RADIUS = 14
+POWERUP_DRIFT_SPEED = 30           # px/s — pickups drift, they don't sit still
+POWERUP_FONT_SIZE = 20             # letter label inside the pickup
+POWERUP_SHIELD_RING_GAP = 8        # px between hull edge and the shield ring
+
+# Explosion particles & screen shake (engagement F5): destruction looks and
+# feels like destruction. Burst size scales with the destroyed body's radius;
+# shake offsets the draw origin only (never entity positions) and decays
+# exponentially with the clamped dt.
+PARTICLES_PER_RADIUS = 0.5         # burst count = radius × intensity × this
+PARTICLE_LIFETIME_SECONDS = 0.6
+PARTICLE_RADIUS = 3                # spark size at birth, shrinking with life
+PARTICLE_MIN_SPEED = 40            # px/s debris speed band, before intensity
+PARTICLE_MAX_SPEED = 160
+PLAYER_DEATH_BURST_INTENSITY = 4.0  # the ship's death bursts harder than rocks
+SHAKE_DECAY = 0.001                # magnitude retained after one second
+SHAKE_STOP_EPSILON = 0.1           # below this the shake snaps fully still
+SHAKE_MAX_MAGNITUDE = 20           # px cap so stacked kicks stay sane
+SHAKE_PLAYER_DEATH = 14.0          # px — losing a life rocks the screen
+SHAKE_LARGE_ASTEROID = 6.0         # px — a large rock's death, scaled by size

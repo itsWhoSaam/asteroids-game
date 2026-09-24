@@ -151,7 +151,7 @@ def test_drone_kill_mints_through_the_shared_pipeline(economy, player, tmp_path)
     for _ in range(150):  # ~2.5 s: fire (0.75 s) plus the shot's travel time
         bay.update(1 / 60, player, asteroids, shots)
         updatable.update(1 / 60)  # move the shots, exactly like main()'s loop
-        handle_collisions(asteroids, shots, player, game)
+        handle_collisions(asteroids, shots, player, game, pygame.sprite.Group())
         wrecks = destroyed_asteroids(prev, asteroids)
         prev = set(asteroids)
         if wrecks:

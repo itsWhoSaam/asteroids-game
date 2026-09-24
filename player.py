@@ -10,9 +10,15 @@ from constants import (
     PLAYER_TURN_SPEED,
     PLAYER_SHOOT_COOLDOWN_SECONDS,
     PLAYER_SHOOT_COOLDOWN_FLOOR_SECONDS,
+    POWERUP_DURATION_S,
+    POWERUP_RAPID_COOLDOWN_MULT,
+    POWERUP_SHIELD_HITS,
+    POWERUP_SHIELD_RING_GAP,
+    POWERUP_TRIPLE_SPREAD,
     SCREEN_HEIGHT,
     SCREEN_WIDTH,
 )
+from powerups import PowerUpType
 from shot import Shot
 
 
@@ -25,11 +31,31 @@ class Player(CircleShape):
         self.cooldown_mult = 1.0
         # Grace window after a respawn: dt-decremented like shot_cooldown_timer.
         self.invulnerability_timer = 0.0
+        # Timed pickups (F4): PowerUpType value -> seconds remaining,
+        # dt-decremented like every timer on this class. The shield
+        # additionally stocks POWERUP_SHIELD_HITS charges.
+        self.powerup_timers = {}
+        self.shield_hits = 0
         self.rotation = 0
 
     @property
     def invulnerable(self):
         return self.invulnerability_timer > 0
+
+    @property
+    def has_rapid(self):
+        """RAPID active: the shoot cooldown is cut for this frame (F4)."""
+        return self.powerup_timers.get(PowerUpType.RAPID.value, 0.0) > 0
+
+    @property
+    def has_triple(self):
+        """TRIPLE active: shots leave in a three-way spread this frame (F4)."""
+        return self.powerup_timers.get(PowerUpType.TRIPLE.value, 0.0) > 0
+
+    @property
+    def shielded(self):
+        """A shield charge is stocked: the next hit is absorbed (F4)."""
+        return self.shield_hits > 0
 
     def respawn(self):
         """Center the ship, zero its velocity, grant the grace window.
@@ -41,6 +67,29 @@ class Player(CircleShape):
         self.position = pygame.Vector2(SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2)
         self.velocity = pygame.Vector2(0, 0)
         self.invulnerability_timer = PLAYER_INVULNERABILITY_SECONDS
+
+    def activate_powerup(self, kind):
+        """Turn a collected pickup on: (re)arm its duration from the
+        constants table; the shield stocks its hit count. Data-driven (F4):
+        the idle-economy follow-up retunes constants, not this code."""
+        self.powerup_timers[kind.value] = POWERUP_DURATION_S[kind.value]
+        if kind is PowerUpType.SHIELD:
+            self.shield_hits = POWERUP_SHIELD_HITS
+
+    def absorb_hit(self):
+        """Spend one shield charge on an incoming hit. True when absorbed.
+
+        Game.player_hit routes every hit through here first, so life loss
+        and respawn stay in one place: an absorbed hit skips both."""
+        if not self.shielded:
+            return False
+        self.shield_hits -= 1
+        return True
+
+    def clear_powerups(self):
+        """Wipe every active effect — part of the full-restart reset (F4)."""
+        self.powerup_timers = {}
+        self.shield_hits = 0
 
     # in the Player class
     def triangle(self):
@@ -62,6 +111,17 @@ class Player(CircleShape):
             self.triangle(),
             LINE_WIDTH
         )
+        # Shield ring (F4): a stocked charge shows outside the hull, so the
+        # player can see the next hit will be absorbed. Blinking with the
+        # ship above keeps the ring honest during the grace window too.
+        if self.shielded:
+            pygame.draw.circle(
+                screen,
+                "white",
+                self.position,
+                self.radius + POWERUP_SHIELD_RING_GAP,
+                LINE_WIDTH,
+            )
 
     def rotate(self, dt):
         self.rotation += PLAYER_TURN_SPEED * dt
@@ -70,6 +130,7 @@ class Player(CircleShape):
         keys = pygame.key.get_pressed()
         self.shot_cooldown_timer -= dt
         self.invulnerability_timer -= dt
+        self._tick_powerups(dt)
 
         if keys[pygame.K_a]:
             self.rotate(-dt)
@@ -82,17 +143,43 @@ class Player(CircleShape):
         if keys[pygame.K_SPACE]:
             self.shoot()
 
+    def _tick_powerups(self, dt):
+        """Expire timed effects: decrement each duration; a type whose clock
+        runs out loses its effect — the shield also loses its unspent hits."""
+        for kind, remaining in list(self.powerup_timers.items()):
+            remaining -= dt
+            if remaining > 0:
+                self.powerup_timers[kind] = remaining
+            else:
+                del self.powerup_timers[kind]
+                if kind == PowerUpType.SHIELD.value:
+                    self.shield_hits = 0
+
     def shoot(self):
         if self.shot_cooldown_timer > 0:
             return
-        # Fire-rate scales the cooldown; the floor keeps a maxed shop from
-        # turning the ship into a hitscan laser.
+        # Fire-rate levels scale the cooldown (shop) and RAPID cuts it
+        # further (F4); the floor keeps a maxed setup from turning the ship
+        # into a hitscan laser.
         self.shot_cooldown_timer = max(
-            PLAYER_SHOOT_COOLDOWN_SECONDS * self.cooldown_mult,
+            PLAYER_SHOOT_COOLDOWN_SECONDS
+            * self.cooldown_mult
+            * (POWERUP_RAPID_COOLDOWN_MULT if self.has_rapid else 1.0),
             PLAYER_SHOOT_COOLDOWN_FLOOR_SECONDS,
         )
+        if self.has_triple:
+            # Three-way spread: the center shot plus one on each side (F4).
+            for spread in (-POWERUP_TRIPLE_SPREAD, 0.0, POWERUP_TRIPLE_SPREAD):
+                self._fire(spread)
+        else:
+            self._fire(0.0)
+
+    def _fire(self, spread_degrees):
         shot = Shot(self.position.x, self.position.y)
-        shot.velocity = pygame.Vector2(0,1).rotate(self.rotation) * PLAYER_SHOOT_SPEED
+        shot.velocity = (
+            pygame.Vector2(0, 1).rotate(self.rotation + spread_degrees)
+            * PLAYER_SHOOT_SPEED
+        )
 
     def move (self, dt):
         unit_vector = pygame.Vector2(0, 1)
