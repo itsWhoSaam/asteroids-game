@@ -1,28 +1,18 @@
-"""Structural smoke test for the extracted collision sweep.
+"""Regression tests for the collision sweep in main.handle_collisions."""
 
-Behavioral regression tests (game over on player collision, no same-frame
-double splits) belong to the collision-fix PR: they must fail against this
-sweep as it is today. This file only pins that handle_collisions is
-extracted and runnable standalone, headless.
-"""
+import json
 
 import pygame
+import pytest
 
-from main import handle_collisions
 from asteroid import Asteroid
+from main import handle_collisions
 from player import Player
+from shot import Shot
 
 
-def test_handle_collisions_runs_with_overlapping_asteroid_and_no_shots():
-    """The sweep executes cleanly with an empty shots group.
-
-    Pins current behavior: the player check lives inside the shot loop, so
-    an asteroid overlapping the player triggers nothing when the player has
-    not fired. The collision-fix PR replaces this expectation with the
-    game-over regression test.
-    """
-    pygame.init()
-
+def make_groups():
+    """Fresh groups with class containers wired, mirroring main()."""
     updatable = pygame.sprite.Group()
     drawable = pygame.sprite.Group()
     asteroids = pygame.sprite.Group()
@@ -30,10 +20,32 @@ def test_handle_collisions_runs_with_overlapping_asteroid_and_no_shots():
 
     Player.containers = (updatable, drawable)
     Asteroid.containers = (asteroids, updatable, drawable)
+    Shot.containers = (shots, updatable, drawable)
+
+    return updatable, drawable, asteroids, shots
+
+
+def read_events(tmp_path):
+    path = tmp_path / "game_events.jsonl"
+    if not path.exists():
+        return []
+    return [json.loads(line) for line in path.read_text().splitlines()]
+
+
+def test_player_collision_ends_game_with_no_shots_in_flight(tmp_path):
+    """B1: the player check must run even when the shots group is empty.
+
+    Before the fix the check sat inside `for shot in shots:`, so an asteroid
+    overlapping the ship went undetected until the player fired a first shot.
+    """
+    pygame.init()
+    _, _, asteroids, shots = make_groups()
 
     player = Player(640, 360)
     Asteroid(640, 360, 40)  # distance 0 <= 40 + PLAYER_RADIUS: overlapping
+    assert len(shots) == 0
 
-    handle_collisions(asteroids, shots, player)
+    with pytest.raises(SystemExit):
+        handle_collisions(asteroids, shots, player)
 
-    assert player.alive()
+    assert any(event["type"] == "player_hit" for event in read_events(tmp_path))

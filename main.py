@@ -11,11 +11,11 @@ from shot import Shot
 
 def handle_collisions(asteroids, shots, player1):
     for asteroid in asteroids:
+        if asteroid.collides_with(player1):
+            log_event("player_hit")
+            print("Game over!")
+            sys.exit()
         for shot in shots:
-            if asteroid.collides_with(player1):
-                log_event("player_hit")
-                print("Game over!")
-                sys.exit()
             if asteroid.collides_with(shot):
                 log_event("asteroid_shot")
                 asteroid.split()
