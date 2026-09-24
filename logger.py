@@ -37,12 +37,13 @@ def _append_line(path, line):
 def log_state():
     global _frame_count
 
-    # Stop logging after `_MAX_SECONDS` seconds
+    # Count every frame even after snapshots stop at the `_MAX_SECONDS` cap,
+    # so log_event stamps a true, increasing frame number.
+    _frame_count += 1
     if _frame_count > _FPS * _MAX_SECONDS:
         return
 
     # Take a snapshot approx. once per second
-    _frame_count += 1
     if _frame_count % _FPS != 0:
         return
 
@@ -96,7 +97,7 @@ def log_state():
 
             game_state[key] = {"count": len(value), "sprites": sprites_data}
 
-        if len(game_state) == 0 and hasattr(value, "position"):
+        if key not in game_state and hasattr(value, "position"):
             sprite_info = {"type": value.__class__.__name__}
 
             sprite_info["pos"] = [

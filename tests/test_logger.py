@@ -6,6 +6,7 @@ import uuid
 import pytest
 
 import logger
+from player import Player
 
 
 def test_log_event_appends_one_line(tmp_path):
@@ -115,3 +116,44 @@ def test_append_across_runs_keeps_prior_lines(tmp_path, monkeypatch):
     event_first, event_second = (json.loads(line) for line in event_lines)
     assert state_first["session"] != state_second["session"]
     assert event_first["session"] != event_second["session"]
+
+
+def test_log_state_records_player_snapshot(tmp_path):
+    """B6: the player's state reaches game_state.jsonl even though the
+    groups precede it in main()'s local-variable order."""
+    import pygame
+
+    pygame.init()
+    screen = pygame.display.set_mode((1280, 720))
+    updatable = pygame.sprite.Group()
+    drawable = pygame.sprite.Group()
+    asteroids = pygame.sprite.Group()
+    shots = pygame.sprite.Group()
+    player1 = Player(640, 360)
+    logger._frame_count = logger._FPS - 1  # next call hits the 1-second sample
+    logger.log_state()  # inspects this frame's locals, mirroring main()
+
+    lines = (tmp_path / "game_state.jsonl").read_text().splitlines()
+    assert len(lines) == 1
+    record = json.loads(lines[0])
+    assert record["player1"]["type"] == "Player"
+    assert record["player1"]["pos"] == [640, 360]
+    assert record["player1"]["vel"] == [0, 0]
+    assert record["player1"]["rad"] == 20  # PLAYER_RADIUS
+    assert record["player1"]["rot"] == 0
+
+
+def test_log_event_frame_increments_past_snapshot_cap(tmp_path):
+    """B8: _frame_count keeps climbing after the 16 s snapshot cap, so
+    events carry a true frame number instead of a frozen one."""
+    logger._frame_count = logger._FPS * logger._MAX_SECONDS  # cap reached
+
+    for _ in range(30):
+        logger.log_state()  # snapshots stopped; the counter must not freeze
+
+    logger.log_event("after_cap")
+
+    record = json.loads(
+        (tmp_path / "game_events.jsonl").read_text().splitlines()[0]
+    )
+    assert record["frame"] == 990  # frozen value would be 961
