@@ -15,3 +15,6 @@ game_events.jsonl
 
 # Persistent save data (engagement F1)
 game_save.json
+
+# JavaScript toolchain (web port) — dist/ is already ignored above
+node_modules/

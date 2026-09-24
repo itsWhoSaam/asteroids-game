@@ -22,6 +22,19 @@ SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy uv run main.py
 
 The game loops at 60 FPS until the window QUIT event (or Q at the game-over screen). A player-asteroid collision costs one of three lives — the ship respawns centered with a 2s invulnerability blink — and at zero lives a game-over overlay appears (R restarts, Q quits). Destroyed non-small asteroids have a 15% chance to drop a timed pickup: SHIELD absorbs one hit (ring on the ship), RAPID cuts the shoot cooldown ×0.4, TRIPLE fires a three-way spread — each lasts 8s (R-free retuning lives in `constants.py`). Sound effects are synthesized procedurally at startup (no binary assets) — shoot, three explosion pitches by asteroid size, pickup, game over — and `M` toggles mute (persisted in `game_save.json`; a MUTED indicator shows top-right while muted). Kill with timeout/interrupt for headless runs.
 
+## Web Toolchain (multiplayer port)
+
+Node 20 + TypeScript (strict, per-package tsconfigs for `shared/`, `server/`, `web/`) with esbuild and vitest:
+
+```bash
+npm ci                # install (package-lock.json is committed)
+npm run typecheck     # tsc --noEmit across shared/, server/, web/
+npm test              # vitest run
+npm run build         # esbuild web/ -> dist/ (placeholder page for now)
+```
+
+The desktop Python build is untouched by the web port; `uv run pytest` remains the authoritative gate. Web checks live in the `web` job of `.github/workflows/ci.yml` alongside `pytest`, which now also triggers on the `feat/multiplayer-web-port` release branch.
+
 ## Local Verification
 
 - No linter or typechecker is configured; pytest is the test suite (dev dependency in `pyproject.toml`): `uv run pytest`.
