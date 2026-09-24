@@ -72,3 +72,26 @@ FLOAT_COLOR = "yellow"
 # Idle persistence: autosave cadence; quitting also saves. The offline
 # payout cap reads idle_last_seen once the drones PR lands.
 IDLE_AUTOSAVE_SECONDS = 30.0
+
+# --- Upgrade shop ---------------------------------------------------------
+# Multiplier steps applied per purchased level; the cost curves themselves
+# live in UPGRADE_COSTS above (the Economy owns the curve, the shop buys
+# through it). Spec-table values — playtest starting points, none structural.
+
+NANOBLADE_MULT_PER_LEVEL = 1.8  # click chip damage ×1.8 per Nanoblade level
+FIRE_RATE_MULT_PER_LEVEL = 0.88  # shot cooldown ×0.88 per Fire-rate level
+# The cooldown never drops below this, however many Fire-rate levels are bought.
+PLAYER_SHOOT_COOLDOWN_FLOOR_SECONDS = 0.03
+INCOME_MULT_PER_LEVEL = 1.15  # credit payouts ×1.15 per Income level
+
+# Bottom shop panel: one strip across the screen width, below the play
+# field — clear of the top-left score HUD (F1) and the centered game-over
+# overlay (F2).
+SHOP_FONT_SIZE = 18
+SHOP_PANEL_HEIGHT = 64
+SHOP_CELL_PADDING = 10
+SHOP_LINE_STEP = 22
+SHOP_PANEL_BG = (16, 16, 28)
+SHOP_PANEL_BORDER = (70, 70, 90)
+SHOP_DIM_COLOR = (100, 100, 100)  # an upgrade the ledger can't pay for yet
+SHOP_BRIGHT_COLOR = (255, 230, 120)  # affordable — the next purchase glows

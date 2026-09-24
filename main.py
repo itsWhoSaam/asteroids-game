@@ -9,6 +9,7 @@ from constants import (
     HUD_LINE_STEP,
     HUD_MARGIN,
     IDLE_AUTOSAVE_SECONDS,
+    SHOP_BRIGHT_COLOR,
     MAX_DT, SCREEN_WIDTH, SCREEN_HEIGHT,
 )
 from asteroid import Asteroid
@@ -18,6 +19,7 @@ from game import Game
 from hud import draw_hud, draw_game_over, hud_font, points_for
 from logger import log_state, log_event
 from player import Player
+from shop import Shop
 from shot import Shot
 
 
@@ -114,6 +116,11 @@ def float_label(amount):
     return f"+{int(amount)}"
 
 
+def click_damage(shop):
+    """Chip damage per click: the constant base scaled by Nanoblade levels."""
+    return CLICK_DAMAGE_BASE * shop.click_damage_mult()
+
+
 class FloatingText(pygame.sprite.Sprite):
     """A '+N' credit number rising from a fresh wreck (idle core).
 
@@ -123,13 +130,13 @@ class FloatingText(pygame.sprite.Sprite):
 
     containers = ()
 
-    def __init__(self, x, y, amount):
+    def __init__(self, x, y, amount, label=None, color=FLOAT_COLOR):
         if self.containers:
             super().__init__(self.containers)
         else:
             super().__init__()
         self.position = pygame.Vector2(x, y)
-        self.surface = float_font().render(float_label(amount), True, FLOAT_COLOR)
+        self.surface = float_font().render(label or float_label(amount), True, color)
         self.lifetime = FLOAT_LIFETIME_SECONDS
 
     def update(self, dt):
@@ -170,6 +177,7 @@ def main():
     player1 = Player(SCREEN_WIDTH/2, SCREEN_HEIGHT/2 )
     game = Game(player1, asteroids, shots)
     economy = Economy()
+    shop = Shop(economy, player1)  # applies any save-loaded effect levels
 
     prev_asteroids = set(asteroids)
     autosave_timer = 0.0
@@ -195,13 +203,26 @@ def main():
                     economy.save()
                     pygame.quit()
                     return
+            if event.type == pygame.KEYDOWN:
+                # Shop keys 1–4 (idle shop): additive beside F2's R/Q —
+                # different keys, so neither branch shadows the other.
+                purchase = shop.handle_key(event.key)
+                if purchase is not None:
+                    x, y = shop.cell_center(purchase.name)
+                    FloatingText(
+                        x,
+                        y,
+                        0,
+                        label=f"{purchase.title} Lv {purchase.level}",
+                        color=SHOP_BRIGHT_COLOR,
+                    )
             if event.type == pygame.MOUSEBUTTONDOWN:
                 # Idle core: a click chips the rock under the cursor. take_chip
                 # routes any kill through split(), so every destruction source
                 # shares one downstream mint path (the group diff below).
                 target = asteroid_at(asteroids, event.pos)
                 if target is not None:
-                    target.take_chip(CLICK_DAMAGE_BASE)
+                    target.take_chip(click_damage(shop))
 
         ms = game_clk.tick(60)
         dt = compute_dt(ms)
@@ -231,6 +252,7 @@ def main():
 
         draw_hud(screen, game.score, lives=game.lives)
         draw_credits(screen, economy.credits)
+        shop.draw_panel(screen)
         if game.state == "game_over":
             draw_game_over(screen, game.score, new_high=game.new_high)
 
