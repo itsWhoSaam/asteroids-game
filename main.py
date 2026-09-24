@@ -6,6 +6,7 @@ from asteroid import Asteroid
 from asteroidfield import AsteroidField
 from logger import log_state, log_event
 from player import Player
+from hud import Score, draw_hud, points_for
 from shot import Shot
 
 
@@ -15,7 +16,8 @@ def compute_dt(ms):
     return min(ms / 1000, MAX_DT)
 
 
-def handle_collisions(asteroids, shots, player1):
+def handle_collisions(asteroids, shots, player1, score=None):
+    # score is the F1 seam; F2's Game object takes its place.
     for asteroid in asteroids:
         if not asteroid.alive():
             continue
@@ -30,6 +32,8 @@ def handle_collisions(asteroids, shots, player1):
                 log_event("asteroid_shot")
                 asteroid.split()
                 shot.kill()
+                if score is not None:
+                    score.add_score(points_for(asteroid.radius))
                 break  # the hit killed the asteroid; skip its remaining shots
 
 
@@ -51,6 +55,7 @@ def main():
 
     Player.containers = (updatable, drawable)
     player1 = Player(SCREEN_WIDTH/2, SCREEN_HEIGHT/2 )
+    score = Score()
 
     
 
@@ -67,13 +72,16 @@ def main():
         updatable.update(dt)
         # player1.update(dt)
 
-        handle_collisions(asteroids, shots, player1)
+        handle_collisions(asteroids, shots, player1, score)
         
         screen.fill("black")
 
         for each in drawable:
             each.draw(screen)
         # player1.draw(screen)
+
+        draw_hud(screen, score.current)
+
         pygame.display.flip()
         
 

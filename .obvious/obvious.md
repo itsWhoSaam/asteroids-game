@@ -24,7 +24,7 @@ The game loops at 60 FPS until the window QUIT event or a player-asteroid collis
 
 ## Local Verification
 
-- No linter, typechecker, or test suite is configured (`TODO(confirm)` — none declared in `pyproject.toml`).
+- No linter or typechecker is configured; pytest is the test suite (dev dependency in `pyproject.toml`): `uv run pytest`.
 - Smoke checks that work everywhere:
   - `uv run python -m compileall -q .` — all modules compile.
   - Headless bounded run (see above); the built-in logger writes `game_state.jsonl` (per-second sprite snapshots) and `game_events.jsonl` (`asteroid_shot`, `player_hit` events). Verify the state log grows and asteroids spawn.
@@ -43,6 +43,7 @@ Flat, single-app repo — all source at root (depth ≤ 2, no sub-apps):
 | `asteroid.py` | `Asteroid` — movement, `split()` on hit |
 | `asteroidfield.py` | `AsteroidField` — spawns asteroids from screen edges on a timer |
 | `shot.py` | `Shot` — player bullets |
+| `hud.py` | `Score` — run score + persistent high score (`game_save.json`), `points_for()` size table, `draw_hud()` overlay |
 | `logger.py` | `log_state()` / `log_event()` — JSONL state & event logging to repo root |
 | `game_events.jsonl` | Committed event log from a prior run (runtime artifact) |
 | `README.md` | Empty |
@@ -50,7 +51,7 @@ Flat, single-app repo — all source at root (depth ≤ 2, no sub-apps):
 ## Gotchas
 
 - The game window is required for a real run; always use the SDL dummy drivers headlessly.
-- `game_state.jsonl` / `game_events.jsonl` are written to the repo root at runtime (state log is gitignored, events log is committed).
+- `game_state.jsonl` / `game_events.jsonl` / `game_save.json` are written to the repo root at runtime (state log and save file are gitignored, events log is committed).
 - Logging auto-stops after 16 seconds per run (`_MAX_SECONDS` in `logger.py`).
 
 ## Sandbox Snapshot
