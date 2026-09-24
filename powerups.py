@@ -13,6 +13,7 @@ import random
 import pygame
 
 from circleshape import CircleShape
+from comicfx import chromatic_circle
 from constants import (
     ASTEROID_MIN_RADIUS,
     LINE_WIDTH,
@@ -93,9 +94,10 @@ class PowerUp(CircleShape):
 
     def draw(self, screen):
         # The kind's identity color rings the pickup and stamps its initial,
-        # so the type reads at a glance across the field.
+        # so the type reads at a glance across the field. Inked pickup (V2):
+        # the ring goes through the chromatic stack like every other entity.
         color = powerup_color(self.kind)
-        pygame.draw.circle(screen, color, self.position, self.radius, LINE_WIDTH)
+        chromatic_circle(screen, color, self.position, self.radius, LINE_WIDTH)
         letter = label_font().render(self.kind.value[0].upper(), True, color)
         screen.blit(letter, letter.get_rect(center=self.position))
 

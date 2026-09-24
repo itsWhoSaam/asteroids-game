@@ -3,6 +3,7 @@ import random
 from logger import log_event
 
 from circleshape import CircleShape
+from comicfx import chromatic_circle
 from constants import (
     ASTEROID_KINDS,
     ASTEROID_MAX_RADIUS,
@@ -65,7 +66,9 @@ class Asteroid(CircleShape):
         return False
 
     def draw(self, screen):
-        pygame.draw.circle(
+        # Inked comic rock (V2): the tier hue stays the fill stroke; the
+        # chromatic stack adds black ink and the red/cyan fringes around it.
+        chromatic_circle(
             screen,
             asteroid_color(self.radius),
             self.position,

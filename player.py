@@ -19,7 +19,9 @@ from constants import (
     SCREEN_HEIGHT,
     SCREEN_WIDTH,
 )
+from comicfx import chromatic_circle, chromatic_polygon
 from powerups import PowerUpType
+
 import sound
 from shot import Shot
 
@@ -107,7 +109,8 @@ class Player(CircleShape):
         # invulnerable ship flickers instead of sitting inside a rock unseen.
         if self.invulnerable and (self.invulnerability_timer * PLAYER_BLINK_HZ) % 1 >= 0.5:
             return
-        pygame.draw.polygon(
+        # Inked comic hull (V2): black ink, chromatic fringes, cyan stroke.
+        chromatic_polygon(
             screen,
             PALETTE["ship"],
             self.triangle(),
@@ -117,7 +120,7 @@ class Player(CircleShape):
         # player can see the next hit will be absorbed. Blinking with the
         # ship above keeps the ring honest during the grace window too.
         if self.shielded:
-            pygame.draw.circle(
+            chromatic_circle(
                 screen,
                 PALETTE["powerup_shield"],
                 self.position,

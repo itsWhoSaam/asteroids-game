@@ -227,6 +227,7 @@ POWERUP_SHIELD_RING_GAP = 8        # px between hull edge and the shield ring
 PARTICLES_PER_RADIUS = 0.5         # burst count = radius × intensity × this
 PARTICLE_LIFETIME_SECONDS = 0.6
 PARTICLE_RADIUS = 3                # spark size at birth, shrinking with life
+PARTICLE_SPAWN_POP = 0.6           # birth-size boost fraction (visual V2 size-pop)
 PARTICLE_MIN_SPEED = 40            # px/s debris speed band, before intensity
 PARTICLE_MAX_SPEED = 160
 PLAYER_DEATH_BURST_INTENSITY = 4.0  # the ship's death bursts harder than rocks
