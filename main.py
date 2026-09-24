@@ -9,6 +9,19 @@ from player import Player
 from shot import Shot
 
 
+def handle_collisions(asteroids, shots, player1):
+    for asteroid in asteroids:
+        for shot in shots:
+            if asteroid.collides_with(player1):
+                log_event("player_hit")
+                print("Game over!")
+                sys.exit()
+            if asteroid.collides_with(shot):
+                log_event("asteroid_shot")
+                asteroid.split()
+                shot.kill()
+
+
 def main():
     pygame.init()
     game_clk = pygame.time.Clock()
@@ -42,17 +55,7 @@ def main():
         updatable.update(dt)
         # player1.update(dt)
 
-
-        for asteroid in asteroids:
-            for shot in shots:
-                if asteroid.collides_with(player1):
-                    log_event("player_hit")
-                    print("Game over!")
-                    sys.exit()
-                if asteroid.collides_with(shot):
-                    log_event("asteroid_shot")
-                    asteroid.split()
-                    shot.kill()
+        handle_collisions(asteroids, shots, player1)
         
         screen.fill("black")
 
