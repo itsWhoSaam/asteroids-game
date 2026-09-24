@@ -1,0 +1,18 @@
+{
+  "name": "asteroids-game-web",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "JS toolchain for the Asteroids multiplayer web port (shared sim + server + browser client).",
+  "scripts": {
+    "typecheck": "tsc --noEmit -p shared && tsc --noEmit -p server && tsc --noEmit -p web",
+    "test": "vitest run",
+    "build": "esbuild web/index.ts --bundle --format=iife --outfile=dist/index.js && cp web/index.html dist/index.html"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.2",
+    "esbuild": "^0.28.2",
+    "typescript": "^7.0.2",
+    "vitest": "^4.1.11"
+  }
+}
