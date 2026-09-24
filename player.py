@@ -9,6 +9,7 @@ from constants import (
     PLAYER_SPEED,
     PLAYER_TURN_SPEED,
     PLAYER_SHOOT_COOLDOWN_SECONDS,
+    PLAYER_SHOOT_COOLDOWN_FLOOR_SECONDS,
     SCREEN_HEIGHT,
     SCREEN_WIDTH,
 )
@@ -19,6 +20,9 @@ class Player(CircleShape):
     def __init__(self, x, y):
         super().__init__(x, y, PLAYER_RADIUS )
         self.shot_cooldown_timer = 0
+        # Shot-rate multiplier the shop mutates (Fire-rate levels); the
+        # stock ship fires on the bare constant.
+        self.cooldown_mult = 1.0
         # Grace window after a respawn: dt-decremented like shot_cooldown_timer.
         self.invulnerability_timer = 0.0
         self.rotation = 0
@@ -81,7 +85,12 @@ class Player(CircleShape):
     def shoot(self):
         if self.shot_cooldown_timer > 0:
             return
-        self.shot_cooldown_timer = PLAYER_SHOOT_COOLDOWN_SECONDS
+        # Fire-rate scales the cooldown; the floor keeps a maxed shop from
+        # turning the ship into a hitscan laser.
+        self.shot_cooldown_timer = max(
+            PLAYER_SHOOT_COOLDOWN_SECONDS * self.cooldown_mult,
+            PLAYER_SHOOT_COOLDOWN_FLOOR_SECONDS,
+        )
         shot = Shot(self.position.x, self.position.y)
         shot.velocity = pygame.Vector2(0,1).rotate(self.rotation) * PLAYER_SHOOT_SPEED
 

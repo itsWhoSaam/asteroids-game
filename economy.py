@@ -13,7 +13,7 @@ import json
 import sys
 import time
 
-from constants import UPGRADE_COSTS
+from constants import INCOME_MULT_PER_LEVEL, UPGRADE_COSTS
 from hud import SAVE_PATH, load_save, points_for, write_save
 
 
@@ -62,8 +62,12 @@ class Economy:
     # --- ledger reads -----------------------------------------------------
 
     def income_multiplier(self):
-        """Scale factor applied to every mint; flat 1.0 until the shop PR."""
-        return self._income_multiplier
+        """Scale factor applied to every mint.
+
+        The Income upgrade compounds per level (the shop PR buys it); the
+        seam field stays the single hook the gold-rush powerup PR raises.
+        """
+        return self._income_multiplier * INCOME_MULT_PER_LEVEL ** self.levels["income"]
 
     def upgrade_cost(self, name):
         """Exponential curve: cost(n) = base × growth**n at the current level."""
