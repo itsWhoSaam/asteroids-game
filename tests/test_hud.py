@@ -16,12 +16,14 @@ from constants import (
 from hud import (
     DEFAULT_SAVE,
     Score,
+    draw_game_over,
     draw_hud,
     hud_font,
     load_save,
     points_for,
     write_save,
 )
+from game import Game
 from main import handle_collisions
 from player import Player
 from shot import Shot
@@ -139,7 +141,8 @@ def test_scoring_below_high_fires_nothing_and_writes_nothing(tmp_path):
 
 
 def test_handle_collisions_awards_points_through_the_seam(tmp_path):
-    """The asteroid_shot branch pays points_for through the score seam."""
+    """The asteroid_shot branch pays points_for through the Game seam
+    (F2 absorbed the F1 Score seam into Game)."""
     pygame.init()
     updatable = pygame.sprite.Group()
     drawable = pygame.sprite.Group()
@@ -153,10 +156,10 @@ def test_handle_collisions_awards_points_through_the_seam(tmp_path):
     Asteroid(640, 360, 60)     # large rock: 20 points
     Shot(640, 360)             # overlapping: destroys it this sweep
 
-    score = Score(tmp_path / "game_save.json")
-    handle_collisions(asteroids, shots, player, score)
+    game = Game(player, asteroids, shots, save_path=tmp_path / "game_save.json")
+    handle_collisions(asteroids, shots, player, game)
 
-    assert score.current == points_for(60)
+    assert game.score == points_for(60)
 
 
 def test_hud_text_surface_renders_nonempty():
@@ -183,3 +186,23 @@ def test_draw_hud_paints_score_pixels_headless():
 
     # all three slots filled (F2/F3 will pass real values) must not crash
     draw_hud(screen, 1234, lives=3, wave=2)
+
+
+def test_draw_game_over_paints_overlay_pixels_headless():
+    """The game-over overlay blits centered text with no display, with and
+    without the new-high-score line."""
+    pygame.init()
+    screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
+
+    screen.fill("black")
+    draw_game_over(screen, 1234, new_high=True)
+    center_x, center_y = SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2
+    samples = [
+        screen.get_at((x, y))
+        for x in range(center_x - 300, center_x + 300, 8)
+        for y in range(center_y - 90, center_y + 90, 8)
+    ]
+    assert any(pixel != (0, 0, 0, 255) for pixel in samples)
+
+    screen.fill("black")
+    draw_game_over(screen, 1234, new_high=False)  # no new-high line: no crash
