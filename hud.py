@@ -116,6 +116,14 @@ class Score:
         self._data["muted"] = self.muted
         write_save(self.save_path, self._data)
 
+    def set_muted(self, muted):
+        """Persist the mute preference (F6) through the save loader: the
+        whole save dict is written, so unknown keys still ride along."""
+        self.muted = muted
+        self._data["muted"] = muted
+        write_save(self.save_path, self._data)
+        return muted
+
     @property
     def beaten(self):
         """True once this run has beaten the persisted high score."""
@@ -142,9 +150,11 @@ def hud_font():
     return _hud_font_cache
 
 
-def draw_hud(screen, score, lives=0, wave=0):
+def draw_hud(screen, score, lives=0, wave=0, muted=False):
     """Draw the HUD top-left. Score always shows; the lives and wave slots
-    stay hidden while zero — F2 and F3 feed them."""
+    stay hidden while zero — F2 and F3 feed them. While playback is muted
+    (F6) a small MUTED tag sits top-right — the only visible feedback
+    silence ever gives."""
     lines = [f"Score: {score}"]
     if lives:
         lines.append(f"Lives: {lives}")
@@ -154,6 +164,10 @@ def draw_hud(screen, score, lives=0, wave=0):
     for row, text in enumerate(lines):
         surface = font.render(text, True, HUD_COLOR)
         screen.blit(surface, (HUD_MARGIN, HUD_MARGIN + row * HUD_LINE_STEP))
+    if muted:
+        surface = font.render("MUTED", True, HUD_COLOR)
+        rect = surface.get_rect(topright=(SCREEN_WIDTH - HUD_MARGIN, HUD_MARGIN))
+        screen.blit(surface, rect)
 
 
 _game_over_font_cache = None
