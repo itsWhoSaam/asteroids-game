@@ -95,3 +95,29 @@ SHOP_PANEL_BG = (16, 16, 28)
 SHOP_PANEL_BORDER = (70, 70, 90)
 SHOP_DIM_COLOR = (100, 100, 100)  # an upgrade the ledger can't pay for yet
 SHOP_BRIGHT_COLOR = (255, 230, 120)  # affordable — the next purchase glows
+
+# --- Idle drones & offline earnings ---------------------------------------
+# One auto-turret per Drones level. Turrets fire REAL Shot instances into
+# the existing shots group, so drone kills flow through the same collision
+# sweep, the same destruction diff, and the same Economy.mint path as
+# player shots — one destruction pipeline pays every source.
+
+DRONE_FIRE_INTERVAL_S = 1.5  # per-turret cadence: one instant-kill Shot
+DRONE_SHOT_SPEED = 500  # px/s — matches the player's shot feel
+DRONE_ORBIT_RADIUS = 36  # px from ship center; markers clear PLAYER_RADIUS
+DRONE_ORBIT_SPEED = 72.0  # deg/s — one lap every 5 s, purely visual
+DRONE_MARKER_RADIUS = 5  # px — the small distinct turret marker
+DRONE_MARKER_COLOR = (90, 220, 200)  # teal — distinct from ship, shots, floats
+
+# Offline payout estimate: a drone shot kills a rock of unknown size, so the
+# grant prices the medium tier per shot instead of reading the live table.
+DRONE_CREDITS_PER_SHOT = 50.0
+
+# Time away still pays, per the spec's balance table: capped at 8 hours and
+# paid at half rate. The boot grant reads idle_last_seen once per launch;
+# the regular autosave keeps the stamp fresh while playing.
+OFFLINE_CAP_SECONDS = 8 * 3600
+OFFLINE_RATE = 0.5
+
+# The one-time 'Offline earnings +N' HUD line fades out over this long.
+OFFLINE_BANNER_SECONDS = 4.0

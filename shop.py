@@ -5,7 +5,7 @@ and buy are its seams, never reimplemented here. Effects apply through the
 hooks each module already exposes: the mouse branch multiplies
 CLICK_DAMAGE_BASE by click_damage_mult(), the ship reads its cooldown_mult
 attribute, and every mint() scales through Economy.income_multiplier().
-Drones is a stored level only until the drones PR adds the turrets.
+Drones spawns one turret per level through drones.DroneBay.
 """
 
 from dataclasses import dataclass
@@ -62,7 +62,7 @@ UPGRADES = (
     UpgradeDef("nanoblade", "Nanoblade", pygame.K_1, "click damage ×1.8/lvl"),
     UpgradeDef("fire_rate", "Fire-rate", pygame.K_2, "shot cooldown ×0.88/lvl"),
     UpgradeDef("income", "Income", pygame.K_3, "credit payouts ×1.15/lvl"),
-    UpgradeDef("drone", "Drones", pygame.K_4, "turret (coming soon)"),
+    UpgradeDef("drone", "Drones", pygame.K_4, "auto-turret per level"),
 )
 
 _BY_KEY = {defn.key: defn for defn in UPGRADES}
