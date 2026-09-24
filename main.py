@@ -2,11 +2,18 @@ import random
 
 import pygame
 
-from constants import MAX_DT, SCREEN_WIDTH, SCREEN_HEIGHT
+from constants import (
+    ASTEROID_MAX_RADIUS,
+    MAX_DT,
+    SCREEN_WIDTH,
+    SCREEN_HEIGHT,
+    SHAKE_LARGE_ASTEROID,
+)
 from asteroid import Asteroid
 from asteroidfield import AsteroidField
 from game import Game
 from logger import log_state, log_event
+from particles import Particle, Shake, burst
 from player import Player
 from hud import WaveBanner, draw_game_over, draw_hud, points_for
 from powerups import PowerUp, drops_powerup, pick_type
@@ -19,7 +26,7 @@ def compute_dt(ms):
     return min(ms / 1000, MAX_DT)
 
 
-def handle_collisions(asteroids, shots, player1, game, powerups):
+def handle_collisions(asteroids, shots, player1, game, powerups, shake=None):
     # The sweep reports hits to the Game instead of exiting the process
     # (engagement F2): a hit costs one of the lives, the ship respawns
     # invulnerable, and the run ends only at zero lives. Invulnerability is
@@ -41,6 +48,15 @@ def handle_collisions(asteroids, shots, player1, game, powerups):
                 continue
             if asteroid.collides_with(shot):
                 log_event("asteroid_shot")
+                # F5: the parent bursts at its death site right before
+                # splitting — any size; a large rock's destruction also
+                # rocks the screen, mildly and scaled to its size. One
+                # destruction path: this is where rocks die.
+                burst(asteroid.position, asteroid.radius)
+                if asteroid.radius >= ASTEROID_MAX_RADIUS and shake is not None:
+                    shake.kick(
+                        SHAKE_LARGE_ASTEROID * asteroid.radius / ASTEROID_MAX_RADIUS
+                    )
                 asteroid.split()
                 shot.kill()
                 game.add_score(points_for(asteroid.radius))
@@ -94,21 +110,31 @@ def main():
     asteroids = pygame.sprite.Group()
     shots = pygame.sprite.Group()
     powerups = pygame.sprite.Group()
+    particles = pygame.sprite.Group()
 
     Asteroid.containers = (asteroids, updatable, drawable)
     Shot.containers = (shots, updatable, drawable)
     PowerUp.containers = (powerups, updatable, drawable)
+    Particle.containers = (particles, updatable, drawable)
     AsteroidField.containers = updatable
 
     Player.containers = (updatable, drawable)
     player1 = Player(SCREEN_WIDTH/2, SCREEN_HEIGHT/2 )
-    game = Game(player1, asteroids, shots, powerups)
+    # F5: the shake lives in main (it offsets the render, not the world);
+    # Game and the sweep get it so they can kick it where lives are lost
+    # and rocks die.
+    shake = Shake()
+    game = Game(player1, asteroids, shots, powerups, particles=particles, shake=shake)
 
     # The field reads the wave off the Game (F3), so it is built after one
     # exists. The WAVE 1 flash arms at game start.
     asteroid_field = AsteroidField(game)
     banner = WaveBanner()
     banner.show(game.wave)
+
+    # F5: the world renders to its own surface so the shake can offset the
+    # blit origin — entity draw calls and positions never change. Built once.
+    world = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT))
 
     while True:
         log_state()
@@ -136,15 +162,20 @@ def main():
         updatable.update(dt)
         # player1.update(dt)
 
-        handle_collisions(asteroids, shots, player1, game, powerups)
+        handle_collisions(asteroids, shots, player1, game, powerups, shake)
         maybe_advance_wave(game, asteroid_field, banner)
         banner.update(dt)
+        shake.update(dt)  # F5: decay toward still before the frame is blitted
 
-        screen.fill("black")
-
+        world.fill("black")
         for each in drawable:
-            each.draw(screen)
-        # player1.draw(screen)
+            each.draw(world)
+
+        # The world is blitted at the shaken offset — the draw origin moves,
+        # entities don't. HUD and banners draw after, unshaken, so the
+        # score stays readable while the world rocks (F5).
+        screen.fill("black")
+        screen.blit(world, shake.offset())
 
         draw_hud(screen, game.score, lives=game.lives, wave=game.wave)
         if game.state == "game_over":
