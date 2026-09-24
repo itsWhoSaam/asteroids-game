@@ -1,3 +1,5 @@
+import pygame
+
 SCREEN_WIDTH = 1280
 SCREEN_HEIGHT = 720
 PLAYER_RADIUS = 20
@@ -32,6 +34,18 @@ PLAYER_BLINK_HZ = 4  # the grace-window blink toggles at this rate
 # Game-over overlay (engagement F2), centered on the screen.
 GAME_OVER_FONT_SIZE = 48
 GAME_OVER_LINE_STEP = 60
+
+# Wave progression (engagement F3): clearing the field starts the next wave,
+# tightening the spawn cadence and shifting the asteroid speed band up. The
+# wave-1 bases are the 0.8s cadence and 40–100 px/s band the field used to
+# hardcode inline.
+WAVE_SPAWN_DECAY = 0.9            # spawn interval multiplier per wave
+WAVE_SPAWN_INTERVAL_FLOOR = 0.3   # seconds — waves never spawn faster than this
+ASTEROID_SPEED_MIN = 40           # wave-1 minimum asteroid speed (px/s)
+ASTEROID_SPEED_MAX = 100          # wave-1 maximum asteroid speed (px/s)
+WAVE_SPEED_MIN_STEP = 10          # minimum-speed increase per wave
+WAVE_SPEED_MAX_STEP = 15          # maximum-speed increase per wave
+WAVE_BANNER_SECONDS = 2.0         # WAVE n banner flash duration
 
 # HUD text (engagement F1), top-left corner.
 HUD_FONT_SIZE = 28
@@ -121,3 +135,120 @@ OFFLINE_RATE = 0.5
 
 # The one-time 'Offline earnings +N' HUD line fades out over this long.
 OFFLINE_BANNER_SECONDS = 4.0
+
+# --- Economy-activated insane powerups (idle release) ----------------------
+# Bought activations, not drops: keys 7–0 fire them, credits price them,
+# and each use re-arms its duration from this table. The table mirrors
+# sibling F4's drop-pickup constants shape — data-driven, one dict per
+# effect — but extends the pattern for purchases: F4's POWERUP_* drop
+# tables are theirs and stay untouched. All numbers are playtest starting
+# values; none is structural.
+
+# One entry per powerup: base price in credits, activation key, duration
+# in seconds (0.0 = instant, like the nuke), and the panel descriptor.
+POWERUPS = {
+    "gold_rush": {"title": "Gold Rush", "cost": 400, "key": pygame.K_7, "duration": 15.0, "desc": "credit income ×5"},
+    "nuke": {"title": "Nuke", "cost": 1000, "key": pygame.K_8, "duration": 0.0, "desc": "clear the field, full payout"},
+    "overdrive": {"title": "Overdrive", "cost": 250, "key": pygame.K_9, "duration": 10.0, "desc": "click damage ×10"},
+    "chrono": {"title": "Chrono", "cost": 300, "key": pygame.K_0, "duration": 8.0, "desc": "asteroid speed ×0.5"},
+}
+
+# price(name) = entry cost × POWERUP_PER_USE_PRICE_GROWTH ** uses — each
+# activation raises that powerup's own next price, so a nuke stays a
+# decision instead of a rhythm button.
+POWERUP_PER_USE_PRICE_GROWTH = 1.25
+
+# A running timed effect glows green in the HUD indicator with its
+# seconds remaining; activation labels float in the same color.
+POWERUP_ACTIVE_COLOR = (120, 255, 180)
+
+# Magnitudes, one named constant each: gold rush multiplies every mint
+# through the income seam (stacking with the Income upgrade); overdrive
+# multiplies click chip damage only — shots stay instant-kill; chrono
+# halves asteroid velocity while active and the exact factor divides out
+# at expiry so base speed is restored fully.
+POWERUP_GOLD_RUSH_MULT = 5.0
+POWERUP_OVERDRIVE_MULT = 10.0
+POWERUP_CHRONO_SLOW = 0.5
+
+# Panel row 2 + indicator colors: the powerup strip renders under the
+# upgrade cells inside the same panel; active effects also light the
+# small HUD indicator line with their remaining seconds.
+POWERUP_COLOR = (170, 120, 255)        # violet — reads apart from upgrades
+POWERUP_ACTIVE_COLOR = (255, 160, 40)  # orange while an effect's clock runs
+
+# Power-ups (engagement F4): a destroyed non-small rock can drop a timed
+# pickup. Effects are data-driven — every duration and magnitude lives in
+# these tables (keys match PowerUpType values in powerups.py) so the
+# idle-economy follow-up can retune or extend them without touching
+# gameplay code.
+POWERUP_DROP_CHANCE = 0.15         # chance a destroyed non-small rock drops one
+POWERUP_DURATION_S = {
+    "shield": 8.0,
+    "rapid": 8.0,
+    "triple": 8.0,
+}
+POWERUP_RAPID_COOLDOWN_MULT = 0.4  # RAPID multiplies the shoot cooldown
+POWERUP_TRIPLE_SPREAD = 20.0       # degrees between the three TRIPLE shots
+POWERUP_SHIELD_HITS = 1            # hits one shield absorbs
+POWERUP_RADIUS = 14
+POWERUP_DRIFT_SPEED = 30           # px/s — pickups drift, they don't sit still
+POWERUP_FONT_SIZE = 20             # letter label inside the pickup
+POWERUP_SHIELD_RING_GAP = 8        # px between hull edge and the shield ring
+
+# Explosion particles & screen shake (engagement F5): destruction looks and
+# feels like destruction. Burst size scales with the destroyed body's radius;
+# shake offsets the draw origin only (never entity positions) and decays
+# exponentially with the clamped dt.
+PARTICLES_PER_RADIUS = 0.5         # burst count = radius × intensity × this
+PARTICLE_LIFETIME_SECONDS = 0.6
+PARTICLE_RADIUS = 3                # spark size at birth, shrinking with life
+PARTICLE_MIN_SPEED = 40            # px/s debris speed band, before intensity
+PARTICLE_MAX_SPEED = 160
+PLAYER_DEATH_BURST_INTENSITY = 4.0  # the ship's death bursts harder than rocks
+SHAKE_DECAY = 0.001                # magnitude retained after one second
+SHAKE_STOP_EPSILON = 0.1           # below this the shake snaps fully still
+SHAKE_MAX_MAGNITUDE = 20           # px cap so stacked kicks stay sane
+SHAKE_PLAYER_DEATH = 14.0          # px — losing a life rocks the screen
+SHAKE_LARGE_ASTEROID = 6.0         # px — a large rock's death, scaled by size
+
+# Sound & mute (engagement F6): every SFX is synthesized at startup from
+# stdlib array/math envelopes — no binary assets, no numpy, no new runtime
+# dependencies. Builders render into the mixer's init format (stereo signed
+# 16-bit at CD rate); every duration and pitch lives in this block so the
+# idle-economy follow-up can retune without touching sound.py's logic.
+SFX_SAMPLE_RATE = 44100
+SFX_FORMAT = -16                   # signed 16-bit samples
+SFX_CHANNELS = 2                   # stereo
+SFX_NOISE_SEED = 7                 # fixed: explosion buffers are deterministic
+
+SFX_SHOOT = "shoot"
+SFX_EXPLOSION_SMALL = "explosion_small"
+SFX_EXPLOSION_MEDIUM = "explosion_medium"
+SFX_EXPLOSION_LARGE = "explosion_large"
+SFX_POWERUP = "powerup"
+SFX_GAME_OVER = "game_over"
+
+# Shoot: a short descending blip (Hz start → end, peak amplitude).
+SFX_SHOOT_DURATION = 0.10
+SFX_SHOOT_SWEEP = (900.0, 300.0)
+SFX_SHOOT_VOLUME = 0.5
+
+# Explosions: noise over a low thump, pitched and sized per asteroid tier —
+# small rocks crack bright and fast, large ones rumble longer.
+SFX_EXPLOSION_VOLUME = 0.6
+SFX_EXPLOSION_TIERS = {
+    "small":  {"duration": 0.18, "thump_hz": 220.0, "brightness": 0.8},
+    "medium": {"duration": 0.30, "thump_hz": 120.0, "brightness": 0.6},
+    "large":  {"duration": 0.45, "thump_hz": 70.0,  "brightness": 0.5},
+}
+
+# Power-up: a rising chirp.
+SFX_POWERUP_DURATION = 0.22
+SFX_POWERUP_SWEEP = (300.0, 900.0)
+SFX_POWERUP_VOLUME = 0.5
+
+# Game over: a long descending tone, the run winding down.
+SFX_GAME_OVER_DURATION = 0.8
+SFX_GAME_OVER_SWEEP = (440.0, 90.0)
+SFX_GAME_OVER_VOLUME = 0.6

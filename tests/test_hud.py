@@ -26,6 +26,7 @@ from hud import (
 from game import Game
 from main import handle_collisions
 from player import Player
+from powerups import PowerUp
 from shot import Shot
 
 
@@ -148,16 +149,18 @@ def test_handle_collisions_awards_points_through_the_seam(tmp_path):
     drawable = pygame.sprite.Group()
     asteroids = pygame.sprite.Group()
     shots = pygame.sprite.Group()
+    powerups = pygame.sprite.Group()
     Player.containers = (updatable, drawable)
     Asteroid.containers = (asteroids, updatable, drawable)
     Shot.containers = (shots, updatable, drawable)
+    PowerUp.containers = (powerups, updatable, drawable)
 
     player = Player(100, 660)  # far from the asteroid: no player hit
     Asteroid(640, 360, 60)     # large rock: 20 points
     Shot(640, 360)             # overlapping: destroys it this sweep
 
-    game = Game(player, asteroids, shots, save_path=tmp_path / "game_save.json")
-    handle_collisions(asteroids, shots, player, game)
+    game = Game(player, asteroids, shots, powerups, save_path=tmp_path / "game_save.json")
+    handle_collisions(asteroids, shots, player, game, powerups)
 
     assert game.score == points_for(60)
 

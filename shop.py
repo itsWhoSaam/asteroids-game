@@ -16,6 +16,8 @@ from constants import (
     NANOBLADE_MULT_PER_LEVEL,
     FIRE_RATE_MULT_PER_LEVEL,
     INCOME_MULT_PER_LEVEL,
+    POWERUPS,
+    POWERUP_ACTIVE_COLOR,
     SCREEN_HEIGHT,
     SCREEN_WIDTH,
     SHOP_BRIGHT_COLOR,
@@ -68,6 +70,16 @@ UPGRADES = (
 _BY_KEY = {defn.key: defn for defn in UPGRADES}
 _BY_NAME = {defn.name: defn for defn in UPGRADES}
 _CELL_INDEX = {defn.name: index for index, defn in enumerate(UPGRADES)}
+
+# Bought powerups (insane-powerups): key bindings read straight out of
+# the POWERUPS table — the same table-driven shape as the upgrade defs
+# and the sibling F4 drop tables, never redefined here.
+_BY_POWERUP_KEY = {defn["key"]: name for name, defn in POWERUPS.items()}
+
+
+def powerup_name_for_key(key):
+    """The bought powerup bound to ``key`` (K_7/K_8/K_9/K_0), or None."""
+    return _BY_POWERUP_KEY.get(key)
 
 
 def cell_width():
@@ -133,6 +145,22 @@ class Shop:
             return None
         return self.purchase(defn.name)
 
+    def handle_powerup_key(self, key):
+        """Activate the bought powerup bound to ``key``; its name, or None.
+
+        None covers both "not a powerup key" and "can't afford it" — the
+        same contract as handle_key, with the strip's brightness telling
+        the player which. Price escalation and duration timers live in
+        the Economy (activate_powerup / tick_powerups); the use counts
+        persist through the idle_powerup_uses save seam.
+        """
+        name = powerup_name_for_key(key)
+        if name is None:
+            return None
+        if not self.economy.activate_powerup(name):
+            return None
+        return name
+
     def purchase(self, name):
         """One level of ``name`` through the Economy seams, effects applied."""
         defn = _BY_NAME[name]
@@ -146,6 +174,11 @@ class Shop:
         """Whether the ledger can pay the next level right now — the same
         gate buy() enforces, surfaced for the panel's brightness rule."""
         return self.economy.credits >= self.economy.upgrade_cost(name)
+
+    def affordable_powerup(self, name):
+        """Whether the ledger can pay this powerup's next (escalated) price
+        right now — the panel strip's brightness rule."""
+        return self.economy.credits >= self.economy.powerup_price(name)
 
     # --- panel ------------------------------------------------------------
 
@@ -175,3 +208,40 @@ class Shop:
             y = SCREEN_HEIGHT - SHOP_PANEL_HEIGHT + SHOP_CELL_PADDING
             screen.blit(font.render(f"[{defn.key_label}] {defn.title}  Lv {level}", True, color), (x, y))
             screen.blit(font.render(f"{cost} cr · {defn.effect}", True, color), (x, y + SHOP_LINE_STEP))
+
+    def draw_powerups(self, screen):
+        """The powerup strip one line above the shop panel, plus the
+        active-effects countdown above it.
+
+        Same visual grammar as the upgrade cells — key, title, next
+        price, bright when affordable, dim when not — with the
+        escalating per-use price shown live. Running timed effects
+        glow in the active color with seconds remaining, soonest
+        expiry first: the indicator that tells the player when
+        Overdrive ends. Reuses the panel's font and colors; no second
+        rendering setup lives anywhere.
+        """
+        font = shop_font()
+        base_y = SCREEN_HEIGHT - SHOP_PANEL_HEIGHT
+        actives = self.economy.active_powerups()
+        if actives:
+            label = " · ".join(
+                f"{title} {remaining:.1f}s" for title, remaining in actives
+            )
+            screen.blit(
+                font.render(label, True, POWERUP_ACTIVE_COLOR),
+                (SHOP_CELL_PADDING, base_y - 2 * SHOP_LINE_STEP),
+            )
+        for index, (name, defn) in enumerate(POWERUPS.items()):
+            price = int(self.economy.powerup_price(name))
+            color = affordability_color(self.affordable_powerup(name))
+            key_label = chr(defn["key"])
+            x = SHOP_CELL_PADDING + index * cell_width()
+            screen.blit(
+                font.render(
+                    f"[{key_label}] {defn['title']} {price} cr · {defn['desc']}",
+                    True,
+                    color,
+                ),
+                (x, base_y - SHOP_LINE_STEP),
+            )

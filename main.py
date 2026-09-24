@@ -1,6 +1,9 @@
+import random
+
 import pygame
 
 from constants import (
+    ASTEROID_MAX_RADIUS,
     CLICK_DAMAGE_BASE,
     FLOAT_COLOR,
     FLOAT_FONT_SIZE,
@@ -9,18 +12,27 @@ from constants import (
     HUD_LINE_STEP,
     HUD_MARGIN,
     IDLE_AUTOSAVE_SECONDS,
+    MAX_DT,
+    POWERUPS,
+    POWERUP_ACTIVE_COLOR,
+    SFX_POWERUP,
+    SCREEN_WIDTH,
+    SCREEN_HEIGHT,
+    SHAKE_LARGE_ASTEROID,
     SHOP_BRIGHT_COLOR,
-    MAX_DT, SCREEN_WIDTH, SCREEN_HEIGHT,
 )
 from asteroid import Asteroid
 from asteroidfield import AsteroidField
 from economy import Economy
 from drones import DroneBay, OfflineBanner, drone_dps
 from game import Game
-from hud import draw_hud, draw_game_over, hud_font, points_for
+from hud import WaveBanner, draw_game_over, draw_hud, hud_font, points_for
 from logger import log_state, log_event
+from particles import Particle, Shake, burst
 from player import Player
+from powerups import PowerUp, drops_powerup, pick_type
 from shop import Shop
+import sound
 from shot import Shot
 
 
@@ -30,12 +42,13 @@ def compute_dt(ms):
     return min(ms / 1000, MAX_DT)
 
 
-def handle_collisions(asteroids, shots, player1, game):
+def handle_collisions(asteroids, shots, player1, game, powerups, shake=None):
     # The sweep reports hits to the Game instead of exiting the process
     # (engagement F2): a hit costs one of the lives, the ship respawns
     # invulnerable, and the run ends only at zero lives. Invulnerability is
     # checked before any hit is resolved, so a respawning ship can sit on
-    # an asteroid for the grace window without losing another life.
+    # an asteroid for the grace window without losing another life. The
+    # shield rides the same path inside Game.player_hit (F4).
     for asteroid in asteroids:
         if not asteroid.alive():
             continue
@@ -51,10 +64,57 @@ def handle_collisions(asteroids, shots, player1, game):
                 continue
             if asteroid.collides_with(shot):
                 log_event("asteroid_shot")
+                # F5: the parent bursts at its death site right before
+                # splitting — any size; a large rock's destruction also
+                # rocks the screen, mildly and scaled to its size. One
+                # destruction path: this is where rocks die.
+                burst(asteroid.position, asteroid.radius)
+                sound.play_explosion(asteroid.radius)  # F6: pitched by size
+                if asteroid.radius >= ASTEROID_MAX_RADIUS and shake is not None:
+                    shake.kick(
+                        SHAKE_LARGE_ASTEROID * asteroid.radius / ASTEROID_MAX_RADIUS
+                    )
                 asteroid.split()
                 shot.kill()
                 game.add_score(points_for(asteroid.radius))
+                # A destroyed non-small rock occasionally pays a pickup (F4).
+                # The pure rolls keep the decision testable; the new PowerUp
+                # joins its containers like every other sprite.
+                if drops_powerup(asteroid.radius, random.random()):
+                    kind = pick_type(random.random())
+                    PowerUp(asteroid.position.x, asteroid.position.y, kind)
+                    log_event("powerup_spawned", powerup_type=kind.value)
                 break  # the hit killed the asteroid; skip its remaining shots
+
+    # Pickups collect on player overlap — during play only, mirroring the
+    # hit branch: a dead run grants nothing (F4).
+    if game.state == "playing":
+        for powerup in powerups:
+            if not powerup.alive():
+                continue
+            if powerup.collides_with(player1):
+                powerup.kill()
+                player1.activate_powerup(powerup.kind)
+                log_event("powerup_collected", powerup_type=powerup.kind.value)
+                sound.play(sound.SFX_POWERUP)  # F6: the pickup jingle
+
+
+def maybe_advance_wave(game, field, banner):
+    """Start the next wave once the current one was populated and is cleared
+    (engagement F3).
+
+    The populated guard is the trap at both ends of a run: at game start and
+    after R-restart the field is empty with wave at 1 — without it the
+    counter would immediately tick to 2. Game over advances nothing.
+    """
+    if game.state != "playing":
+        return
+    if field.spawned_this_wave == 0 or len(game.asteroids) > 0:
+        return
+    game.wave += 1
+    field.start_wave()  # fresh spawn clock and populated guard for the new wave
+    banner.show(game.wave)
+    log_event("wave_started", wave=game.wave)
 
 
 class _ClickPoint:
@@ -101,6 +161,23 @@ def destroyed_asteroids(previous, current):
     ]
 
 
+def nuke_field(asteroids):
+    """The nuke: split the whole field to completion, right now.
+
+    Every rock dies through the ordinary split() path — no free pass
+    and no second mint path. The loop's destruction diff pays each
+    rock that was on screen exactly once: split() children are new
+    sprites absent from prev_asteroids, and children born and killed
+    inside this same call never appear in any frame snapshot at all.
+    Debris bursts fire here because the sweep's destruction site
+    never sees these kills.
+    """
+    while len(asteroids) > 0:
+        for rock in list(asteroids):
+            burst(rock.position, rock.radius)
+            rock.split()
+
+
 _float_font_cache = None
 
 
@@ -117,9 +194,11 @@ def float_label(amount):
     return f"+{int(amount)}"
 
 
-def click_damage(shop):
-    """Chip damage per click: the constant base scaled by Nanoblade levels."""
-    return CLICK_DAMAGE_BASE * shop.click_damage_mult()
+def click_damage(shop, economy):
+    """Chip damage per click: the constant base scaled by Nanoblade
+    levels — and ×10 while Overdrive runs (insane powerups). Shots
+    never route here; they keep their instant-kill split()."""
+    return CLICK_DAMAGE_BASE * shop.click_damage_mult() * economy.overdrive_mult()
 
 
 class FloatingText(pygame.sprite.Sprite):
@@ -158,6 +237,7 @@ def draw_credits(screen, credits):
 
 def main():
     pygame.init()
+    sound.init()  # F6: mixer + SFX; any failure degrades to a silent no-op
     game_clk = pygame.time.Clock()
     dt = 0
     screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
@@ -167,16 +247,33 @@ def main():
     asteroids = pygame.sprite.Group()
     shots = pygame.sprite.Group()
     floaters = pygame.sprite.Group()
+    powerups = pygame.sprite.Group()
+    particles = pygame.sprite.Group()
 
     Asteroid.containers = (asteroids, updatable, drawable)
     Shot.containers = (shots, updatable, drawable)
+    PowerUp.containers = (powerups, updatable, drawable)
+    Particle.containers = (particles, updatable, drawable)
     AsteroidField.containers = updatable
     FloatingText.containers = (floaters, updatable, drawable)
-    asteroid_field = AsteroidField()
 
     Player.containers = (updatable, drawable)
     player1 = Player(SCREEN_WIDTH/2, SCREEN_HEIGHT/2 )
-    game = Game(player1, asteroids, shots)
+    # F5: the shake lives in main (it offsets the render, not the world);
+    # Game and the sweep get it so they can kick it where lives are lost
+    # and rocks die.
+    shake = Shake()
+    game = Game(player1, asteroids, shots, powerups, particles=particles, shake=shake)
+    # F6: start from the persisted mute preference — the sound module only
+    # learns it here; playback stays suppressed either way.
+    sound.set_muted(game.muted)
+
+    # The field reads the wave off the Game (F3), so it is built after one
+    # exists. The WAVE 1 flash arms at game start.
+    asteroid_field = AsteroidField(game)
+    banner = WaveBanner()
+    banner.show(game.wave)
+
     economy = Economy()
     shop = Shop(economy, player1)  # applies any save-loaded effect levels
     drones = DroneBay(economy)  # turret count follows the Drones level
@@ -192,6 +289,10 @@ def main():
     prev_asteroids = set(asteroids)
     autosave_timer = 0.0
 
+    # F5: the world renders to its own surface so the shake can offset the
+    # blit origin — entity draw calls and positions never change. Built once.
+    world = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT))
+
     while True:
         log_state()
 
@@ -200,6 +301,11 @@ def main():
                 economy.save()
                 pygame.quit()
                 return
+            if event.type == pygame.KEYDOWN and event.key == pygame.K_m:
+                # F6: mute is playback-only, works in any state, and persists
+                # through the save loader. Kept in this event-pump block;
+                # later features add their input alongside it.
+                sound.set_muted(game.toggle_mute())
             if event.type == pygame.KEYDOWN and game.state == "game_over":
                 # R restarts, Q quits (engagement F2). Kept in this event-pump
                 # block; later features add their input alongside it.
@@ -209,6 +315,14 @@ def main():
                     for asteroid in asteroids:
                         asteroid.despawned = True
                     game.restart()
+                    # Bought timed effects die with the run: the paid
+                    # use is consumed, the new run starts clean.
+                    economy.end_run_effects()
+                    # The field forgets the old wave too, or its populated
+                    # guard would see an empty field and tick to wave 2
+                    # before the fresh run spawns anything.
+                    asteroid_field.start_wave()
+                    banner.show(game.wave)
                 elif event.key == pygame.K_q:
                     economy.save()
                     pygame.quit()
@@ -226,13 +340,31 @@ def main():
                         label=f"{purchase.title} Lv {purchase.level}",
                         color=SHOP_BRIGHT_COLOR,
                     )
+                # Bought powerups (insane-powerups): keys 7–0 activate
+                # only when the ledger can pay the escalating price. The
+                # nuke is the one activation that also destroys — through
+                # the normal splits, so the destruction diff mints each
+                # rock exactly once.
+                powerup = shop.handle_powerup_key(event.key)
+                if powerup is not None:
+                    if powerup == "nuke":
+                        nuke_field(asteroids)
+                    sound.play(SFX_POWERUP)
+                    log_event("powerup_activated", name=powerup)
+                    FloatingText(
+                        SCREEN_WIDTH / 2,
+                        SCREEN_HEIGHT / 3,
+                        0,
+                        label=f"{POWERUPS[powerup]['title'].upper()}!",
+                        color=POWERUP_ACTIVE_COLOR,
+                    )
             if event.type == pygame.MOUSEBUTTONDOWN:
                 # Idle core: a click chips the rock under the cursor. take_chip
                 # routes any kill through split(), so every destruction source
                 # shares one downstream mint path (the group diff below).
                 target = asteroid_at(asteroids, event.pos)
                 if target is not None:
-                    target.take_chip(click_damage(shop))
+                    target.take_chip(click_damage(shop, economy))
 
         ms = game_clk.tick(60)
         dt = compute_dt(ms)
@@ -244,7 +376,15 @@ def main():
         # the player's own — one destruction path pays every source.
         drones.update(dt, player1, asteroids, shots)
 
-        handle_collisions(asteroids, shots, player1, game)
+        handle_collisions(asteroids, shots, player1, game, powerups, shake)
+        maybe_advance_wave(game, asteroid_field, banner)
+        banner.update(dt)
+        shake.update(dt)  # F5: decay toward still before the frame is blitted
+
+        # Bought powerups tick on the dt-timer pattern: expire effects,
+        # then publish the chrono scale the whole field reads this frame.
+        economy.tick_powerups(dt)
+        Asteroid.speed_scale = economy.chrono_scale()
 
         # Destruction → credits: diff this frame's field against the last,
         # mint once per wreck, float a '+N' over the wreck.
@@ -259,20 +399,27 @@ def main():
             autosave_timer = 0.0
             economy.save()
 
-        screen.fill("black")
-
+        world.fill("black")
         for each in drawable:
-            each.draw(screen)
-        # player1.draw(screen)
+            each.draw(world)
 
-        draw_hud(screen, game.score, lives=game.lives)
+        # The world is blitted at the shaken offset — the draw origin moves,
+        # entities don't. HUD and banners draw after, unshaken, so the
+        # score stays readable while the world rocks (F5).
+        screen.fill("black")
+        screen.blit(world, shake.offset())
+
+        draw_hud(screen, game.score, lives=game.lives, wave=game.wave,
+                 muted=game.muted)
         draw_credits(screen, economy.credits)
         offline_banner.update(dt)
         offline_banner.draw(screen)
         drones.draw(screen, player1)
         shop.draw_panel(screen)
+        shop.draw_powerups(screen)
         if game.state == "game_over":
             draw_game_over(screen, game.score, new_high=game.new_high)
+        banner.draw(screen)  # on top: the WAVE n flash overlays everything
 
         pygame.display.flip()
         

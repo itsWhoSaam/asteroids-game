@@ -23,6 +23,7 @@ from constants import (
     SCORE_SMALL,
     SCREEN_HEIGHT,
     SCREEN_WIDTH,
+    WAVE_BANNER_SECONDS,
 )
 from logger import log_event
 
@@ -115,6 +116,14 @@ class Score:
         self._data["muted"] = self.muted
         write_save(self.save_path, self._data)
 
+    def set_muted(self, muted):
+        """Persist the mute preference (F6) through the save loader: the
+        whole save dict is written, so unknown keys still ride along."""
+        self.muted = muted
+        self._data["muted"] = muted
+        write_save(self.save_path, self._data)
+        return muted
+
     @property
     def beaten(self):
         """True once this run has beaten the persisted high score."""
@@ -141,9 +150,11 @@ def hud_font():
     return _hud_font_cache
 
 
-def draw_hud(screen, score, lives=0, wave=0):
+def draw_hud(screen, score, lives=0, wave=0, muted=False):
     """Draw the HUD top-left. Score always shows; the lives and wave slots
-    stay hidden while zero — F2 and F3 feed them."""
+    stay hidden while zero — F2 and F3 feed them. While playback is muted
+    (F6) a small MUTED tag sits top-right — the only visible feedback
+    silence ever gives."""
     lines = [f"Score: {score}"]
     if lives:
         lines.append(f"Lives: {lives}")
@@ -153,6 +164,10 @@ def draw_hud(screen, score, lives=0, wave=0):
     for row, text in enumerate(lines):
         surface = font.render(text, True, HUD_COLOR)
         screen.blit(surface, (HUD_MARGIN, HUD_MARGIN + row * HUD_LINE_STEP))
+    if muted:
+        surface = font.render("MUTED", True, HUD_COLOR)
+        rect = surface.get_rect(topright=(SCREEN_WIDTH - HUD_MARGIN, HUD_MARGIN))
+        screen.blit(surface, rect)
 
 
 _game_over_font_cache = None
@@ -182,4 +197,38 @@ def draw_game_over(screen, score, new_high=False):
         rect = surface.get_rect(
             center=(SCREEN_WIDTH / 2, top + (row + 0.5) * GAME_OVER_LINE_STEP)
         )
+        screen.blit(surface, rect)
+
+
+class WaveBanner:
+    """Centered 'WAVE n' flash (engagement F3).
+
+    The house dt-timer pattern — a float decremented every frame, visible
+    while positive — with the text alpha fading out over the duration.
+    """
+
+    def __init__(self, duration=WAVE_BANNER_SECONDS):
+        self.duration = duration
+        self.timer = 0.0
+        self.wave = 1
+
+    def show(self, wave):
+        """Arm the flash for a wave: 1 at game start/restart, n+1 on advance."""
+        self.wave = wave
+        self.timer = self.duration
+
+    def update(self, dt):
+        if self.timer > 0:
+            self.timer = max(0.0, self.timer - dt)
+
+    @property
+    def visible(self):
+        return self.timer > 0
+
+    def draw(self, screen):
+        if not self.visible:
+            return
+        surface = game_over_font().render(f"WAVE {self.wave}", True, HUD_COLOR)
+        surface.set_alpha(int(255 * self.timer / self.duration))
+        rect = surface.get_rect(center=(SCREEN_WIDTH / 2, SCREEN_HEIGHT / 3))
         screen.blit(surface, rect)
