@@ -1,8 +1,8 @@
-"""Score tracking, persistent high score, and the HUD overlay (engagement F1).
+"""Score tracking, persistent high score, and the HUD overlays (engagement F1).
 
-The Score state is the seam F2's Game object will absorb: handle_collisions
-reports points through `score.add_score(...)` and main() renders whatever
-draw_hud draws.
+F2's Game object absorbed the Score seam: it owns the run score and delegates
+to Score for high-score persistence. main() renders whatever draw_hud and
+draw_game_over draw.
 """
 
 import json
@@ -12,6 +12,8 @@ import pygame
 
 from constants import (
     ASTEROID_MIN_RADIUS,
+    GAME_OVER_FONT_SIZE,
+    GAME_OVER_LINE_STEP,
     HUD_COLOR,
     HUD_FONT_SIZE,
     HUD_LINE_STEP,
@@ -19,6 +21,8 @@ from constants import (
     SCORE_LARGE,
     SCORE_MEDIUM,
     SCORE_SMALL,
+    SCREEN_HEIGHT,
+    SCREEN_WIDTH,
 )
 from logger import log_event
 
@@ -79,8 +83,8 @@ def write_save(path, save):
 class Score:
     """Current run score plus the persistent high score.
 
-    F2's Game object will absorb this state wholesale; handle_collisions
-    already talks to the add_score seam.
+    F2's Game object owns this instance and surfaces its state; the sweep
+    reaches it through Game.add_score.
     """
 
     def __init__(self, save_path=SAVE_PATH):
@@ -111,6 +115,20 @@ class Score:
         self._data["muted"] = self.muted
         write_save(self.save_path, self._data)
 
+    @property
+    def beaten(self):
+        """True once this run has beaten the persisted high score."""
+        return self._beaten
+
+    def reset(self):
+        """Start a fresh run: score to zero, re-arm the beaten flag.
+
+        The high score itself is untouched — it was persisted on every
+        crossing, so a restart cannot lose the record.
+        """
+        self.current = 0
+        self._beaten = False
+
 
 _hud_font_cache = None
 
@@ -135,3 +153,33 @@ def draw_hud(screen, score, lives=0, wave=0):
     for row, text in enumerate(lines):
         surface = font.render(text, True, HUD_COLOR)
         screen.blit(surface, (HUD_MARGIN, HUD_MARGIN + row * HUD_LINE_STEP))
+
+
+_game_over_font_cache = None
+
+
+def game_over_font():
+    """Lazily built, larger font for the game-over banner."""
+    global _game_over_font_cache
+    if _game_over_font_cache is None:
+        _game_over_font_cache = pygame.font.Font(None, GAME_OVER_FONT_SIZE)
+    return _game_over_font_cache
+
+
+def draw_game_over(screen, score, new_high=False):
+    """Centered game-over overlay (engagement F2): final score, the
+    new-high-score state when the run set a record, and the R/Q prompt."""
+    lines = [f"Game over — score {score}"]
+    if new_high:
+        lines.append("New high score!")
+    lines.append("press R to restart, Q to quit")
+
+    font = game_over_font()
+    height = len(lines) * GAME_OVER_LINE_STEP
+    top = SCREEN_HEIGHT / 2 - height / 2
+    for row, text in enumerate(lines):
+        surface = font.render(text, True, HUD_COLOR)
+        rect = surface.get_rect(
+            center=(SCREEN_WIDTH / 2, top + (row + 0.5) * GAME_OVER_LINE_STEP)
+        )
+        screen.blit(surface, rect)
