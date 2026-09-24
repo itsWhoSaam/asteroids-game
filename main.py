@@ -87,6 +87,17 @@ def freeze_for_destructions(hit_stop, count):
     hit_stop.freeze(1.0 if count == 1 else HIT_STOP_MULTI_SCALE)
 
 
+def try_dash(player, game):
+    """SHIFT wiring (insanity core): dash the ship; a successful dash
+    breaks the combo — the escape valve prices its i-frames. Returns
+    whether the dash fired. The wiring lives in main, not on Player: the
+    ship doesn't own run state."""
+    if not player.dash():
+        return False
+    game.break_combo()
+    return True
+
+
 def handle_collisions(asteroids, shots, player1, game, powerups, shake=None,
                       hit_stop=None):
     # The sweep reports hits to the Game instead of exiting the process
@@ -432,6 +443,15 @@ def main():
                     # combo-free (take_chip never routes to register_kill).
                     destroyed = target.take_chip(click_damage(shop, economy))
                     freeze_for_destructions(hit_stop, 1 if destroyed else 0)
+            if (
+                event.type == pygame.KEYDOWN
+                and event.key in (pygame.K_LSHIFT, pygame.K_RSHIFT)
+                and game.state == "playing"
+            ):
+                # Dash (insanity core): L/R-SHIFT keydown dashes along the
+                # nose. Gated to play so a SHIFT press on the game-over
+                # screen can't spend the cooldown.
+                try_dash(player1, game)
 
         ms = game_clk.tick(60)
         dt = compute_dt(ms)
