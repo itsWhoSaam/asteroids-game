@@ -1,4 +1,4 @@
-"""Chromatic comic outlines (visual V2): the ink/fringe/fill contract.
+"""Procedural comic FX: the ink/fringe/fill contract and the comic background.
 
 comicfx renders every outlined entity in three passes — black ink, the
 red/cyan offset fringes, then the colored stroke. These tests pin that
@@ -8,11 +8,26 @@ horizontally, black ink closes the poles, and nothing renders past the
 locked halo budget. They also re-pin the ring-band tripwire in its V2
 form: the inked ship's outline never reaches the band where the shield
 ring sits, 25–32px from the hull center.
+
+The comic background (visual V3) has its own pins: the overlay pre-renders
+opaque and fades by uniform surface alpha (the measured cheap blit), the
+hex-packed halftone grid lands dot centers on even cells with paper between
+them, and the radial action lines spare the inner radius around screen
+center.
 """
 
 import pygame
 
-from comicfx import FRINGE_MAX_PX, FRINGE_PX, chromatic_circle, chromatic_polygon
+from comicfx import (
+    ACTION_LINE_INNER_RADIUS,
+    BACKGROUND_ALPHA,
+    FRINGE_MAX_PX,
+    FRINGE_PX,
+    HALFTONE_SPACING,
+    build_background,
+    chromatic_circle,
+    chromatic_polygon,
+)
 from constants import (
     LINE_WIDTH,
     PALETTE,
@@ -146,3 +161,55 @@ def test_shielded_ring_still_lands_in_its_band():
         != palette_pixel("paper")
         for offset in band
     )
+
+
+# --- Comic background (visual V3) -------------------------------------------
+
+
+def test_background_fades_by_uniform_surface_alpha():
+    """The overlay is the measured cheap variant: an opaque surface faded by
+    uniform surface alpha. get_alpha() returning the set value is the pin —
+    on a per-pixel SRCALPHA surface surface-alpha is unused and reads None,
+    and per-pixel blending costs ~0.25ms more per frame for nothing."""
+    overlay = build_background(SCREEN_WIDTH, SCREEN_HEIGHT)
+    assert overlay.get_alpha() == BACKGROUND_ALPHA
+
+
+def test_background_carries_the_halftone_grid():
+    """Dot centers show the halftone swatch with paper between them, and the
+    uniform fade lands a blitted dot strictly between the two colors — the
+    print screen survives, faded, over whatever the world drew."""
+    overlay = build_background(SCREEN_WIDTH, SCREEN_HEIGHT)
+
+    dot = (HALFTONE_SPACING, 0)  # a row-0 dot center
+    gap = (HALFTONE_SPACING // 2, 0)  # between row-0 dots, clear of row 1
+    assert overlay.get_at(dot) == palette_pixel("halftone")
+    assert overlay.get_at(gap) == palette_pixel("paper")
+
+    screen = probe_screen()
+    screen.blit(overlay, (0, 0))
+    faded = screen.get_at(dot)
+    assert faded != palette_pixel("paper")  # the dot survives the fade...
+    assert faded != palette_pixel("halftone")  # ...but fades toward the paper
+
+
+def test_background_action_lines_radiate_and_spare_the_center():
+    """Action lines run along the +x ray just past the inner radius, and the
+    disk inside it carries only the paper/dot texture — the play focus at
+    screen center stays clean."""
+    overlay = build_background(SCREEN_WIDTH, SCREEN_HEIGHT)
+    center = (SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2)
+
+    on_ray = [
+        overlay.get_at((center[0] + offset, center[1]))
+        for offset in range(ACTION_LINE_INNER_RADIUS + 2, ACTION_LINE_INNER_RADIUS + 40)
+    ]
+    assert palette_pixel("action_line") in on_ray
+
+    inner = ACTION_LINE_INNER_RADIUS - 20
+    for dx in range(-inner, inner + 1, 4):
+        for dy in range(-inner, inner + 1, 4):
+            if dx * dx + dy * dy > inner * inner:
+                continue  # sample the disk, not the box — corners reach further
+            pixel = overlay.get_at((center[0] + dx, center[1] + dy))
+            assert pixel in (palette_pixel("paper"), palette_pixel("halftone"))

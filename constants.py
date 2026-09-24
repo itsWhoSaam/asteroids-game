@@ -59,6 +59,8 @@ HUD_LINE_STEP = 34
 # Swatches are the spec's tunable "Miles-mode v1" identity.
 PALETTE = {
     "paper": (23, 18, 58),         # deep-indigo void behind everything
+    "halftone": (62, 51, 140),     # print-screen dots over the paper (V3)
+    "action_line": (40, 32, 94),   # faint radial speed lines (V3)
     "ship": (62, 230, 240),        # cyan hull (also the shield's hue family)
     "fringe_r": (255, 51, 85),     # chromatic-aberration pair (outline pass V2)
     "fringe_c": (47, 212, 255),
