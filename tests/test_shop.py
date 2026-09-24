@@ -13,6 +13,7 @@ from constants import (
     CLICK_DAMAGE_BASE,
     GAME_OVER_LINE_STEP,
     NANOBLADE_MULT_PER_LEVEL,
+    PALETTE,
     PLAYER_SHOOT_COOLDOWN_FLOOR_SECONDS,
     PLAYER_SHOOT_COOLDOWN_SECONDS,
     SCREEN_HEIGHT,
@@ -286,7 +287,7 @@ def test_draw_panel_renders_the_strip_headlessly(headless_screen, shop, economy)
     """The panel draws without error and paints its strip: a background-only
     pixel inside a cell proves the panel is on screen."""
     fund(economy, 60.0)
-    headless_screen.fill("black")
+    headless_screen.fill(PALETTE["paper"])
     shop.draw_panel(headless_screen)
 
     x = int(3.5 * cell_width())  # inside the last cell, below both text lines
@@ -298,12 +299,12 @@ def test_draw_panel_marks_affordable_cells_bright(headless_screen, shop, economy
     """Every cell paints text; the affordable cell's line uses the bright
     color, the unaffordable one the dim color."""
     fund(economy, 0.0)  # nothing affordable
-    headless_screen.fill("black")
+    headless_screen.fill(PALETTE["paper"])
     shop.draw_panel(headless_screen)
     assert _text_pixels(headless_screen, 0)
 
     fund(economy, 10.0)  # nanoblade affordable — its line brightens
-    headless_screen.fill("black")
+    headless_screen.fill(PALETTE["paper"])
     shop.draw_panel(headless_screen)
     bright = _text_pixels(headless_screen, 0)
     assert any(pixel[:3] == SHOP_BRIGHT_COLOR for pixel in bright)

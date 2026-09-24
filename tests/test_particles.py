@@ -12,6 +12,7 @@ from asteroid import Asteroid
 from constants import (
     ASTEROID_MAX_RADIUS,
     ASTEROID_MIN_RADIUS,
+    PALETTE,
     PARTICLE_LIFETIME_SECONDS,
     PLAYER_DEATH_BURST_INTENSITY,
     SHAKE_LARGE_ASTEROID,
@@ -131,9 +132,9 @@ def test_particle_renders_headless():
     screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
     spark = Particle(640, 360, pygame.Vector2(0, 0))
 
-    screen.fill("black")
+    screen.fill(PALETTE["paper"])
     spark.draw(screen)
-    assert screen.get_at((640, 360)) != (0, 0, 0, 255)
+    assert screen.get_at((640, 360)) != (*PALETTE["paper"], 255)
 
 
 # --- Shake decay and the draw-origin-only constraint --------------------------
@@ -199,10 +200,10 @@ def test_shake_never_changes_any_sprite_position():
     # the main-loop application, verbatim: draw to the world, blit shifted
     screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
     world = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT))
-    world.fill("black")
+    world.fill(PALETTE["paper"])
     for each in drawable:
         each.draw(world)
-    screen.fill("black")
+    screen.fill(PALETTE["paper"])
     screen.blit(world, offset)
 
     for sprite, position in zip(sprites, before):
