@@ -142,7 +142,11 @@ class Player(CircleShape):
             self.move(dt)
         if keys[pygame.K_s]:
             self.move(-dt)
-        if keys[pygame.K_SPACE]:
+        # A held space fires on the cooldown clock, which only advances on
+        # sim time. A frozen frame (hit-stop) steps dt=0: firing here would
+        # machine-gun stacked shots at a paused cooldown, so a zero-dt
+        # frame never pulls the trigger.
+        if keys[pygame.K_SPACE] and dt > 0:
             self.shoot()
 
     def _tick_powerups(self, dt):
