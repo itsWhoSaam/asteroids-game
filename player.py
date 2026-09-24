@@ -9,6 +9,7 @@ from constants import (
     PLAYER_SPEED,
     PLAYER_TURN_SPEED,
     PLAYER_SHOOT_COOLDOWN_SECONDS,
+    PLAYER_SHOOT_COOLDOWN_FLOOR_SECONDS,
     POWERUP_DURATION_S,
     POWERUP_RAPID_COOLDOWN_MULT,
     POWERUP_SHIELD_HITS,
@@ -26,6 +27,9 @@ class Player(CircleShape):
     def __init__(self, x, y):
         super().__init__(x, y, PLAYER_RADIUS )
         self.shot_cooldown_timer = 0
+        # Shot-rate multiplier the shop mutates (Fire-rate levels); the
+        # stock ship fires on the bare constant.
+        self.cooldown_mult = 1.0
         # Grace window after a respawn: dt-decremented like shot_cooldown_timer.
         self.invulnerability_timer = 0.0
         # Timed pickups (F4): PowerUpType value -> seconds remaining,
@@ -155,8 +159,14 @@ class Player(CircleShape):
     def shoot(self):
         if self.shot_cooldown_timer > 0:
             return
-        self.shot_cooldown_timer = PLAYER_SHOOT_COOLDOWN_SECONDS * (
-            POWERUP_RAPID_COOLDOWN_MULT if self.has_rapid else 1.0
+        # Fire-rate levels scale the cooldown (shop) and RAPID cuts it
+        # further (F4); the floor keeps a maxed setup from turning the ship
+        # into a hitscan laser.
+        self.shot_cooldown_timer = max(
+            PLAYER_SHOOT_COOLDOWN_SECONDS
+            * self.cooldown_mult
+            * (POWERUP_RAPID_COOLDOWN_MULT if self.has_rapid else 1.0),
+            PLAYER_SHOOT_COOLDOWN_FLOOR_SECONDS,
         )
         # F6: one blip per trigger pull, even on a TRIPLE volley. A no-op
         # whenever audio is unavailable or muted — sound.play never raises.

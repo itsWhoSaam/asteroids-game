@@ -1,3 +1,5 @@
+import pygame
+
 SCREEN_WIDTH = 1280
 SCREEN_HEIGHT = 720
 PLAYER_RADIUS = 20
@@ -50,6 +52,130 @@ HUD_FONT_SIZE = 28
 HUD_MARGIN = 12
 HUD_LINE_STEP = 34
 HUD_COLOR = "white"
+
+# --- Idle economy core ---------------------------------------------------
+# All balance numbers here are playtest starting values from the idle spec;
+# none is structural. The shop PR turns them into purchasable controls.
+
+# Chip damage per click. The Nanoblade upgrade multiplies this in the shop
+# PR; the economy core wires it through with no multiplier yet.
+CLICK_DAMAGE_BASE = 1.0
+
+# Chip health per size tier (tier = radius / ASTEROID_MIN_RADIUS): a small
+# rock absorbs one tier's worth (~3 base clicks), a large three tiers'
+# (~9). Crossing the threshold dies through the normal split() path; shots
+# bypass chips entirely and keep their instant-kill split().
+CHIP_HEALTH_PER_TIER = 3.0
+
+# Upgrade cost curves: cost(level) = base * growth ** level. Exponential on
+# purpose — prices must always outpace linear income so the shop always has
+# a next goal. Purchases land in the shop PR.
+UPGRADE_COSTS = {
+    "nanoblade": (10.0, 1.75),  # click damage
+    "fire_rate": (25.0, 1.90),  # shot cooldown
+    "income": (50.0, 2.00),  # credit multiplier
+    "drone": (100.0, 2.20),  # idle turret count
+}
+
+# Floating '+N' credit numbers over fresh wrecks (dt-timer lifetime).
+FLOAT_FONT_SIZE = 20
+FLOAT_LIFETIME_SECONDS = 1.0
+FLOAT_RISE_SPEED = 40.0  # px/s upward
+FLOAT_COLOR = "yellow"
+
+# Idle persistence: autosave cadence; quitting also saves. The offline
+# payout cap reads idle_last_seen once the drones PR lands.
+IDLE_AUTOSAVE_SECONDS = 30.0
+
+# --- Upgrade shop ---------------------------------------------------------
+# Multiplier steps applied per purchased level; the cost curves themselves
+# live in UPGRADE_COSTS above (the Economy owns the curve, the shop buys
+# through it). Spec-table values — playtest starting points, none structural.
+
+NANOBLADE_MULT_PER_LEVEL = 1.8  # click chip damage ×1.8 per Nanoblade level
+FIRE_RATE_MULT_PER_LEVEL = 0.88  # shot cooldown ×0.88 per Fire-rate level
+# The cooldown never drops below this, however many Fire-rate levels are bought.
+PLAYER_SHOOT_COOLDOWN_FLOOR_SECONDS = 0.03
+INCOME_MULT_PER_LEVEL = 1.15  # credit payouts ×1.15 per Income level
+
+# Bottom shop panel: one strip across the screen width, below the play
+# field — clear of the top-left score HUD (F1) and the centered game-over
+# overlay (F2).
+SHOP_FONT_SIZE = 18
+SHOP_PANEL_HEIGHT = 64
+SHOP_CELL_PADDING = 10
+SHOP_LINE_STEP = 22
+SHOP_PANEL_BG = (16, 16, 28)
+SHOP_PANEL_BORDER = (70, 70, 90)
+SHOP_DIM_COLOR = (100, 100, 100)  # an upgrade the ledger can't pay for yet
+SHOP_BRIGHT_COLOR = (255, 230, 120)  # affordable — the next purchase glows
+
+# --- Idle drones & offline earnings ---------------------------------------
+# One auto-turret per Drones level. Turrets fire REAL Shot instances into
+# the existing shots group, so drone kills flow through the same collision
+# sweep, the same destruction diff, and the same Economy.mint path as
+# player shots — one destruction pipeline pays every source.
+
+DRONE_FIRE_INTERVAL_S = 1.5  # per-turret cadence: one instant-kill Shot
+DRONE_SHOT_SPEED = 500  # px/s — matches the player's shot feel
+DRONE_ORBIT_RADIUS = 36  # px from ship center; markers clear PLAYER_RADIUS
+DRONE_ORBIT_SPEED = 72.0  # deg/s — one lap every 5 s, purely visual
+DRONE_MARKER_RADIUS = 5  # px — the small distinct turret marker
+DRONE_MARKER_COLOR = (90, 220, 200)  # teal — distinct from ship, shots, floats
+
+# Offline payout estimate: a drone shot kills a rock of unknown size, so the
+# grant prices the medium tier per shot instead of reading the live table.
+DRONE_CREDITS_PER_SHOT = 50.0
+
+# Time away still pays, per the spec's balance table: capped at 8 hours and
+# paid at half rate. The boot grant reads idle_last_seen once per launch;
+# the regular autosave keeps the stamp fresh while playing.
+OFFLINE_CAP_SECONDS = 8 * 3600
+OFFLINE_RATE = 0.5
+
+# The one-time 'Offline earnings +N' HUD line fades out over this long.
+OFFLINE_BANNER_SECONDS = 4.0
+
+# --- Economy-activated insane powerups (idle release) ----------------------
+# Bought activations, not drops: keys 7–0 fire them, credits price them,
+# and each use re-arms its duration from this table. The table mirrors
+# sibling F4's drop-pickup constants shape — data-driven, one dict per
+# effect — but extends the pattern for purchases: F4's POWERUP_* drop
+# tables are theirs and stay untouched. All numbers are playtest starting
+# values; none is structural.
+
+# One entry per powerup: base price in credits, activation key, duration
+# in seconds (0.0 = instant, like the nuke), and the panel descriptor.
+POWERUPS = {
+    "gold_rush": {"title": "Gold Rush", "cost": 400, "key": pygame.K_7, "duration": 15.0, "desc": "credit income ×5"},
+    "nuke": {"title": "Nuke", "cost": 1000, "key": pygame.K_8, "duration": 0.0, "desc": "clear the field, full payout"},
+    "overdrive": {"title": "Overdrive", "cost": 250, "key": pygame.K_9, "duration": 10.0, "desc": "click damage ×10"},
+    "chrono": {"title": "Chrono", "cost": 300, "key": pygame.K_0, "duration": 8.0, "desc": "asteroid speed ×0.5"},
+}
+
+# price(name) = entry cost × POWERUP_PER_USE_PRICE_GROWTH ** uses — each
+# activation raises that powerup's own next price, so a nuke stays a
+# decision instead of a rhythm button.
+POWERUP_PER_USE_PRICE_GROWTH = 1.25
+
+# A running timed effect glows green in the HUD indicator with its
+# seconds remaining; activation labels float in the same color.
+POWERUP_ACTIVE_COLOR = (120, 255, 180)
+
+# Magnitudes, one named constant each: gold rush multiplies every mint
+# through the income seam (stacking with the Income upgrade); overdrive
+# multiplies click chip damage only — shots stay instant-kill; chrono
+# halves asteroid velocity while active and the exact factor divides out
+# at expiry so base speed is restored fully.
+POWERUP_GOLD_RUSH_MULT = 5.0
+POWERUP_OVERDRIVE_MULT = 10.0
+POWERUP_CHRONO_SLOW = 0.5
+
+# Panel row 2 + indicator colors: the powerup strip renders under the
+# upgrade cells inside the same panel; active effects also light the
+# small HUD indicator line with their remaining seconds.
+POWERUP_COLOR = (170, 120, 255)        # violet — reads apart from upgrades
+POWERUP_ACTIVE_COLOR = (255, 160, 40)  # orange while an effect's clock runs
 
 # Power-ups (engagement F4): a destroyed non-small rock can drop a timed
 # pickup. Effects are data-driven — every duration and magnitude lives in
