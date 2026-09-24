@@ -1,0 +1,6 @@
+# Repo policy for the obvious setup PR / agent workflows
+branches:
+  default: main
+merge:
+  method: merge
+  requireHumanMerge: true
