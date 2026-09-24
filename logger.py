@@ -1,6 +1,7 @@
 import inspect
 import json
 import math
+import sys
 from datetime import datetime
 
 __all__ = ["log_state", "log_event"]
@@ -112,8 +113,12 @@ def log_state():
 
     # New log file on each run
     mode = "w" if not _state_log_initialized else "a"
-    with open(_STATE_LOG_PATH, mode) as f:
-        f.write(json.dumps(entry) + "\n")
+    try:
+        with open(_STATE_LOG_PATH, mode) as f:
+            f.write(json.dumps(entry) + "\n")
+    except OSError as exc:
+        print(f"[logger] warning: could not write {_STATE_LOG_PATH}: {exc}", file=sys.stderr)
+        return
 
     _state_log_initialized = True
 
@@ -132,7 +137,11 @@ def log_event(event_type, **details):
     }
 
     mode = "w" if not _event_log_initialized else "a"
-    with open(_EVENT_LOG_PATH, mode) as f:
-        f.write(json.dumps(event) + "\n")
+    try:
+        with open(_EVENT_LOG_PATH, mode) as f:
+            f.write(json.dumps(event) + "\n")
+    except OSError as exc:
+        print(f"[logger] warning: could not write {_EVENT_LOG_PATH}: {exc}", file=sys.stderr)
+        return
 
     _event_log_initialized = True

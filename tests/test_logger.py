@@ -2,6 +2,8 @@
 
 import json
 
+import pytest
+
 import logger
 
 
@@ -33,3 +35,36 @@ def test_fixture_resets_logger_state_between_tests():
     assert logger._frame_count == 0
     assert logger._state_log_initialized is False
     assert logger._event_log_initialized is False
+
+
+@pytest.fixture
+def read_only_dir(tmp_path):
+    """A directory that cannot be written to (restored so pytest can prune)."""
+    ro = tmp_path / "read_only"
+    ro.mkdir()
+    ro.chmod(0o500)
+    yield ro
+    ro.chmod(0o700)
+
+
+def test_log_state_survives_read_only_dir(read_only_dir, monkeypatch, capsys):
+    """B4: an unwritable log location prints a warning instead of crashing."""
+    monkeypatch.setattr(logger, "_STATE_LOG_PATH", str(read_only_dir / "game_state.jsonl"))
+    logger._frame_count = logger._FPS - 1  # next call takes a snapshot
+
+    logger.log_state()  # must not raise OSError
+
+    captured = capsys.readouterr()
+    assert "warning" in (captured.err + captured.out).lower()
+    assert not (read_only_dir / "game_state.jsonl").exists()
+
+
+def test_log_event_survives_read_only_dir(read_only_dir, monkeypatch, capsys):
+    """B4: the event write path is equally fail-safe on I/O errors."""
+    monkeypatch.setattr(logger, "_EVENT_LOG_PATH", str(read_only_dir / "game_events.jsonl"))
+
+    logger.log_event("player_hit")  # must not raise OSError
+
+    captured = capsys.readouterr()
+    assert "warning" in (captured.err + captured.out).lower()
+    assert not (read_only_dir / "game_events.jsonl").exists()
