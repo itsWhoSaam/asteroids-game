@@ -1,3 +1,5 @@
+import random
+
 import pygame
 
 from constants import MAX_DT, SCREEN_WIDTH, SCREEN_HEIGHT
@@ -7,6 +9,7 @@ from game import Game
 from logger import log_state, log_event
 from player import Player
 from hud import WaveBanner, draw_game_over, draw_hud, points_for
+from powerups import PowerUp, drops_powerup, pick_type
 from shot import Shot
 
 
@@ -16,12 +19,13 @@ def compute_dt(ms):
     return min(ms / 1000, MAX_DT)
 
 
-def handle_collisions(asteroids, shots, player1, game):
+def handle_collisions(asteroids, shots, player1, game, powerups):
     # The sweep reports hits to the Game instead of exiting the process
     # (engagement F2): a hit costs one of the lives, the ship respawns
     # invulnerable, and the run ends only at zero lives. Invulnerability is
     # checked before any hit is resolved, so a respawning ship can sit on
-    # an asteroid for the grace window without losing another life.
+    # an asteroid for the grace window without losing another life. The
+    # shield rides the same path inside Game.player_hit (F4).
     for asteroid in asteroids:
         if not asteroid.alive():
             continue
@@ -40,7 +44,25 @@ def handle_collisions(asteroids, shots, player1, game):
                 asteroid.split()
                 shot.kill()
                 game.add_score(points_for(asteroid.radius))
+                # A destroyed non-small rock occasionally pays a pickup (F4).
+                # The pure rolls keep the decision testable; the new PowerUp
+                # joins its containers like every other sprite.
+                if drops_powerup(asteroid.radius, random.random()):
+                    kind = pick_type(random.random())
+                    PowerUp(asteroid.position.x, asteroid.position.y, kind)
+                    log_event("powerup_spawned", powerup_type=kind.value)
                 break  # the hit killed the asteroid; skip its remaining shots
+
+    # Pickups collect on player overlap — during play only, mirroring the
+    # hit branch: a dead run grants nothing (F4).
+    if game.state == "playing":
+        for powerup in powerups:
+            if not powerup.alive():
+                continue
+            if powerup.collides_with(player1):
+                powerup.kill()
+                player1.activate_powerup(powerup.kind)
+                log_event("powerup_collected", powerup_type=powerup.kind.value)
 
 
 def maybe_advance_wave(game, field, banner):
@@ -71,14 +93,16 @@ def main():
     drawable = pygame.sprite.Group()
     asteroids = pygame.sprite.Group()
     shots = pygame.sprite.Group()
+    powerups = pygame.sprite.Group()
 
     Asteroid.containers = (asteroids, updatable, drawable)
     Shot.containers = (shots, updatable, drawable)
+    PowerUp.containers = (powerups, updatable, drawable)
     AsteroidField.containers = updatable
 
     Player.containers = (updatable, drawable)
     player1 = Player(SCREEN_WIDTH/2, SCREEN_HEIGHT/2 )
-    game = Game(player1, asteroids, shots)
+    game = Game(player1, asteroids, shots, powerups)
 
     # The field reads the wave off the Game (F3), so it is built after one
     # exists. The WAVE 1 flash arms at game start.
@@ -112,7 +136,7 @@ def main():
         updatable.update(dt)
         # player1.update(dt)
 
-        handle_collisions(asteroids, shots, player1, game)
+        handle_collisions(asteroids, shots, player1, game, powerups)
         maybe_advance_wave(game, asteroid_field, banner)
         banner.update(dt)
 

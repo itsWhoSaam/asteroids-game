@@ -50,3 +50,22 @@ HUD_FONT_SIZE = 28
 HUD_MARGIN = 12
 HUD_LINE_STEP = 34
 HUD_COLOR = "white"
+
+# Power-ups (engagement F4): a destroyed non-small rock can drop a timed
+# pickup. Effects are data-driven — every duration and magnitude lives in
+# these tables (keys match PowerUpType values in powerups.py) so the
+# idle-economy follow-up can retune or extend them without touching
+# gameplay code.
+POWERUP_DROP_CHANCE = 0.15         # chance a destroyed non-small rock drops one
+POWERUP_DURATION_S = {
+    "shield": 8.0,
+    "rapid": 8.0,
+    "triple": 8.0,
+}
+POWERUP_RAPID_COOLDOWN_MULT = 0.4  # RAPID multiplies the shoot cooldown
+POWERUP_TRIPLE_SPREAD = 20.0       # degrees between the three TRIPLE shots
+POWERUP_SHIELD_HITS = 1            # hits one shield absorbs
+POWERUP_RADIUS = 14
+POWERUP_DRIFT_SPEED = 30           # px/s — pickups drift, they don't sit still
+POWERUP_FONT_SIZE = 20             # letter label inside the pickup
+POWERUP_SHIELD_RING_GAP = 8        # px between hull edge and the shield ring
