@@ -34,6 +34,7 @@ The game loops at 60 FPS until the window QUIT event (or Q at the game-over scre
   - `uv run python .obvious/evidence/proof_f4.py` — F4 evidence: pickup drop + shield-ring PNGs to `/tmp/obv-evidence/` (also logs `powerup_spawned`/`powerup_collected` to the repo-root events log).
   - `uv run python .obvious/evidence/proof_f5.py` — F5 evidence: burst before/after PNGs + a two-frame shake-offset pair to `/tmp/obv-evidence/` (offsets printed and asserted different).
   - `uv run python .obvious/evidence/proof_f6.py` — F6 evidence: unmuted/muted HUD pair (MUTED indicator top-right after a simulated M press) to `/tmp/obv-evidence/`, with mixer format, SFX table, and persisted save asserted.
+  - `uv run python -m tests._balance_sim` — the ten-minute balance simulation of the main loop (income vs field density per minute, purchase curve, nuke scenario); `tests/test_balance.py` pins the fast gates.
 
 ## Codebase Map
 
@@ -56,7 +57,7 @@ Flat, single-app repo — all source at root (depth ≤ 2, no sub-apps):
 | `hud.py` | `Score` — run score + persistent high score (`game_save.json`), `points_for()` size table, `draw_hud()` overlay, `draw_game_over()` overlay, `WaveBanner` flash (engagement F3) |
 | `logger.py` | `log_state()` / `log_event()` — JSONL state & event logging to repo root |
 | `game_events.jsonl` | Committed event log from a prior run (runtime artifact) |
-| `README.md` | Empty |
+| `README.md` | Controls, idle loop, persistence, and run/test docs |
 
 ## Gotchas
 
