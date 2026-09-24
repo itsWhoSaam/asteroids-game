@@ -33,6 +33,18 @@ PLAYER_BLINK_HZ = 4  # the grace-window blink toggles at this rate
 GAME_OVER_FONT_SIZE = 48
 GAME_OVER_LINE_STEP = 60
 
+# Wave progression (engagement F3): clearing the field starts the next wave,
+# tightening the spawn cadence and shifting the asteroid speed band up. The
+# wave-1 bases are the 0.8s cadence and 40–100 px/s band the field used to
+# hardcode inline.
+WAVE_SPAWN_DECAY = 0.9            # spawn interval multiplier per wave
+WAVE_SPAWN_INTERVAL_FLOOR = 0.3   # seconds — waves never spawn faster than this
+ASTEROID_SPEED_MIN = 40           # wave-1 minimum asteroid speed (px/s)
+ASTEROID_SPEED_MAX = 100          # wave-1 maximum asteroid speed (px/s)
+WAVE_SPEED_MIN_STEP = 10          # minimum-speed increase per wave
+WAVE_SPEED_MAX_STEP = 15          # maximum-speed increase per wave
+WAVE_BANNER_SECONDS = 2.0         # WAVE n banner flash duration
+
 # HUD text (engagement F1), top-left corner.
 HUD_FONT_SIZE = 28
 HUD_MARGIN = 12

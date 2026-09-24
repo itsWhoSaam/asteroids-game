@@ -23,6 +23,7 @@ from constants import (
     SCORE_SMALL,
     SCREEN_HEIGHT,
     SCREEN_WIDTH,
+    WAVE_BANNER_SECONDS,
 )
 from logger import log_event
 
@@ -182,4 +183,38 @@ def draw_game_over(screen, score, new_high=False):
         rect = surface.get_rect(
             center=(SCREEN_WIDTH / 2, top + (row + 0.5) * GAME_OVER_LINE_STEP)
         )
+        screen.blit(surface, rect)
+
+
+class WaveBanner:
+    """Centered 'WAVE n' flash (engagement F3).
+
+    The house dt-timer pattern — a float decremented every frame, visible
+    while positive — with the text alpha fading out over the duration.
+    """
+
+    def __init__(self, duration=WAVE_BANNER_SECONDS):
+        self.duration = duration
+        self.timer = 0.0
+        self.wave = 1
+
+    def show(self, wave):
+        """Arm the flash for a wave: 1 at game start/restart, n+1 on advance."""
+        self.wave = wave
+        self.timer = self.duration
+
+    def update(self, dt):
+        if self.timer > 0:
+            self.timer = max(0.0, self.timer - dt)
+
+    @property
+    def visible(self):
+        return self.timer > 0
+
+    def draw(self, screen):
+        if not self.visible:
+            return
+        surface = game_over_font().render(f"WAVE {self.wave}", True, HUD_COLOR)
+        surface.set_alpha(int(255 * self.timer / self.duration))
+        rect = surface.get_rect(center=(SCREEN_WIDTH / 2, SCREEN_HEIGHT / 3))
         screen.blit(surface, rect)

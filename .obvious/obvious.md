@@ -43,9 +43,9 @@ Flat, single-app repo — all source at root (depth ≤ 2, no sub-apps):
 | `circleshape.py` | `CircleShape` base class (position, velocity, radius, `collides_with`) |
 | `player.py` | `Player` — triangle ship, rotate/move/shoot |
 | `asteroid.py` | `Asteroid` — movement, `split()` on hit |
-| `asteroidfield.py` | `AsteroidField` — spawns asteroids from screen edges on a timer |
+| `asteroidfield.py` | `AsteroidField` — spawns asteroids from screen edges on a timer; cadence and speed band come from the pure `wave_params(wave)` (engagement F3) |
 | `shot.py` | `Shot` — player bullets |
-| `hud.py` | `Score` — run score + persistent high score (`game_save.json`), `points_for()` size table, `draw_hud()` overlay, `draw_game_over()` overlay |
+| `hud.py` | `Score` — run score + persistent high score (`game_save.json`), `points_for()` size table, `draw_hud()` overlay, `draw_game_over()` overlay, `WaveBanner` flash (engagement F3) |
 | `logger.py` | `log_state()` / `log_event()` — JSONL state & event logging to repo root |
 | `game_events.jsonl` | Committed event log from a prior run (runtime artifact) |
 | `README.md` | Empty |
