@@ -37,7 +37,8 @@ Flat, single-app repo — all source at root (depth ≤ 2, no sub-apps):
 
 | File | Role |
 |---|---|
-| `main.py` | Entry point; pygame init, sprite groups, main 60 FPS loop, collision handling reporting hits to `Game` |
+| `main.py` | Entry point; pygame init, sprite groups, main 60 FPS loop, collision handling reporting hits to `Game`, click-damage input and the idle destruction-diff/mint poll (idle core) |
+| `economy.py` | `Economy` — the idle ledger: credits, upgrade cost curve, `mint`/`buy`, `idle_*` keys merged through F1's save loader; the ONLY writer of the ledger |
 | `game.py` | `Game` — run state (score, lives, wave, phase); respawn/invulnerability grants, game-over and full-restart resets (engagement F2) |
 | `constants.py` | Tunables: screen 1280x720, player, asteroid, shot parameters |
 | `circleshape.py` | `CircleShape` base class (position, velocity, radius, `collides_with`) |
