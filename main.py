@@ -13,6 +13,9 @@ from constants import (
     HUD_MARGIN,
     IDLE_AUTOSAVE_SECONDS,
     MAX_DT,
+    POWERUPS,
+    POWERUP_ACTIVE_COLOR,
+    SFX_POWERUP,
     SCREEN_WIDTH,
     SCREEN_HEIGHT,
     SHAKE_LARGE_ASTEROID,
@@ -158,6 +161,23 @@ def destroyed_asteroids(previous, current):
     ]
 
 
+def nuke_field(asteroids):
+    """The nuke: split the whole field to completion, right now.
+
+    Every rock dies through the ordinary split() path — no free pass
+    and no second mint path. The loop's destruction diff pays each
+    rock that was on screen exactly once: split() children are new
+    sprites absent from prev_asteroids, and children born and killed
+    inside this same call never appear in any frame snapshot at all.
+    Debris bursts fire here because the sweep's destruction site
+    never sees these kills.
+    """
+    while len(asteroids) > 0:
+        for rock in list(asteroids):
+            burst(rock.position, rock.radius)
+            rock.split()
+
+
 _float_font_cache = None
 
 
@@ -174,9 +194,11 @@ def float_label(amount):
     return f"+{int(amount)}"
 
 
-def click_damage(shop):
-    """Chip damage per click: the constant base scaled by Nanoblade levels."""
-    return CLICK_DAMAGE_BASE * shop.click_damage_mult()
+def click_damage(shop, economy):
+    """Chip damage per click: the constant base scaled by Nanoblade
+    levels — and ×10 while Overdrive runs (insane powerups). Shots
+    never route here; they keep their instant-kill split()."""
+    return CLICK_DAMAGE_BASE * shop.click_damage_mult() * economy.overdrive_mult()
 
 
 class FloatingText(pygame.sprite.Sprite):
@@ -293,6 +315,9 @@ def main():
                     for asteroid in asteroids:
                         asteroid.despawned = True
                     game.restart()
+                    # Bought timed effects die with the run: the paid
+                    # use is consumed, the new run starts clean.
+                    economy.end_run_effects()
                     # The field forgets the old wave too, or its populated
                     # guard would see an empty field and tick to wave 2
                     # before the fresh run spawns anything.
@@ -315,13 +340,31 @@ def main():
                         label=f"{purchase.title} Lv {purchase.level}",
                         color=SHOP_BRIGHT_COLOR,
                     )
+                # Bought powerups (insane-powerups): keys 7–0 activate
+                # only when the ledger can pay the escalating price. The
+                # nuke is the one activation that also destroys — through
+                # the normal splits, so the destruction diff mints each
+                # rock exactly once.
+                powerup = shop.handle_powerup_key(event.key)
+                if powerup is not None:
+                    if powerup == "nuke":
+                        nuke_field(asteroids)
+                    sound.play(SFX_POWERUP)
+                    log_event("powerup_activated", name=powerup)
+                    FloatingText(
+                        SCREEN_WIDTH / 2,
+                        SCREEN_HEIGHT / 3,
+                        0,
+                        label=f"{POWERUPS[powerup]['title'].upper()}!",
+                        color=POWERUP_ACTIVE_COLOR,
+                    )
             if event.type == pygame.MOUSEBUTTONDOWN:
                 # Idle core: a click chips the rock under the cursor. take_chip
                 # routes any kill through split(), so every destruction source
                 # shares one downstream mint path (the group diff below).
                 target = asteroid_at(asteroids, event.pos)
                 if target is not None:
-                    target.take_chip(click_damage(shop))
+                    target.take_chip(click_damage(shop, economy))
 
         ms = game_clk.tick(60)
         dt = compute_dt(ms)
@@ -337,6 +380,11 @@ def main():
         maybe_advance_wave(game, asteroid_field, banner)
         banner.update(dt)
         shake.update(dt)  # F5: decay toward still before the frame is blitted
+
+        # Bought powerups tick on the dt-timer pattern: expire effects,
+        # then publish the chrono scale the whole field reads this frame.
+        economy.tick_powerups(dt)
+        Asteroid.speed_scale = economy.chrono_scale()
 
         # Destruction → credits: diff this frame's field against the last,
         # mint once per wreck, float a '+N' over the wreck.
@@ -368,6 +416,7 @@ def main():
         offline_banner.draw(screen)
         drones.draw(screen, player1)
         shop.draw_panel(screen)
+        shop.draw_powerups(screen)
         if game.state == "game_over":
             draw_game_over(screen, game.score, new_high=game.new_high)
         banner.draw(screen)  # on top: the WAVE n flash overlays everything

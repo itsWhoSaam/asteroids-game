@@ -11,6 +11,12 @@ from constants import (
 )
 
 class Asteroid(CircleShape):
+    # Time dilation (chrono powerup): the main loop writes the active
+    # scale here every frame — class-level, so spawned and split rocks
+    # dilate with the field, and expiry restores base speed by the same
+    # write (no per-instance undo state to forget).
+    speed_scale = 1.0
+
     def __init__(self, x, y, radius):
         super().__init__(x, y, radius)
         self.radius = radius
@@ -50,7 +56,9 @@ class Asteroid(CircleShape):
             LINE_WIDTH
         )
     def update(self, dt):
-        self.position += self.velocity * dt
+        # Chrono time dilation rides the frame step: the active scale
+        # (1.0 baseline) is the class attribute the main loop publishes.
+        self.position += self.velocity * self.speed_scale * dt
         if self.is_off_screen(ASTEROID_MAX_RADIUS):
             # Mark the cull before kill(): a rock that drifted off-screen
             # was never destroyed, so the idle diff poll must not mint for it.

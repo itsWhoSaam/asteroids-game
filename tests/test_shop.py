@@ -128,14 +128,14 @@ def test_affordability_gate_matches_the_buy_gate(shop, economy):
 
 
 def test_nanoblade_raises_click_damage(shop, economy):
-    assert click_damage(shop) == CLICK_DAMAGE_BASE
+    assert click_damage(shop, economy) == CLICK_DAMAGE_BASE
     fund(economy, 1000.0)
     shop.handle_key(pygame.K_1)
-    assert click_damage(shop) == pytest.approx(
+    assert click_damage(shop, economy) == pytest.approx(
         CLICK_DAMAGE_BASE * NANOBLADE_MULT_PER_LEVEL
     )
     shop.handle_key(pygame.K_1)  # level 2
-    assert click_damage(shop) == pytest.approx(
+    assert click_damage(shop, economy) == pytest.approx(
         CLICK_DAMAGE_BASE * NANOBLADE_MULT_PER_LEVEL**2
     )
 
@@ -152,7 +152,7 @@ def test_nanoblade_kills_a_small_rock_in_fewer_clicks(tmp_path):
         shop = Shop(economy, Player(0, 0))
         rock = Asteroid(400, 300, ASTEROID_MIN_RADIUS)
         while rock.alive():
-            rock.take_chip(click_damage(shop))
+            rock.take_chip(click_damage(shop, economy))
         assert len(asteroids) == 0  # a small rock shatters — no children
 
         fund(economy, 10.0)
@@ -160,7 +160,7 @@ def test_nanoblade_kills_a_small_rock_in_fewer_clicks(tmp_path):
         rock = Asteroid(400, 300, ASTEROID_MIN_RADIUS)
         clicks = 0
         while rock.alive():
-            rock.take_chip(click_damage(shop))
+            rock.take_chip(click_damage(shop, economy))
             clicks += 1
         assert clicks == 2
         assert len(asteroids) == 0
@@ -215,7 +215,7 @@ def test_drones_store_a_level_without_gameplay_effect(shop, economy, player):
     drones PR adds the turrets."""
     fund(economy, 100.0)
     before = {
-        "click": click_damage(shop),
+        "click": click_damage(shop, economy),
         "cooldown": player.cooldown_mult,
         "income": economy.income_multiplier(),
     }
@@ -225,7 +225,7 @@ def test_drones_store_a_level_without_gameplay_effect(shop, economy, player):
     assert purchase.level == 1
     assert economy.levels["drone"] == 1
     assert economy.credits == 0.0
-    assert click_damage(shop) == before["click"]
+    assert click_damage(shop, economy) == before["click"]
     assert player.cooldown_mult == before["cooldown"]
     assert economy.income_multiplier() == before["income"]
 

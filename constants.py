@@ -1,3 +1,5 @@
+import pygame
+
 SCREEN_WIDTH = 1280
 SCREEN_HEIGHT = 720
 PLAYER_RADIUS = 20
@@ -133,6 +135,47 @@ OFFLINE_RATE = 0.5
 
 # The one-time 'Offline earnings +N' HUD line fades out over this long.
 OFFLINE_BANNER_SECONDS = 4.0
+
+# --- Economy-activated insane powerups (idle release) ----------------------
+# Bought activations, not drops: keys 7–0 fire them, credits price them,
+# and each use re-arms its duration from this table. The table mirrors
+# sibling F4's drop-pickup constants shape — data-driven, one dict per
+# effect — but extends the pattern for purchases: F4's POWERUP_* drop
+# tables are theirs and stay untouched. All numbers are playtest starting
+# values; none is structural.
+
+# One entry per powerup: base price in credits, activation key, duration
+# in seconds (0.0 = instant, like the nuke), and the panel descriptor.
+POWERUPS = {
+    "gold_rush": {"title": "Gold Rush", "cost": 400, "key": pygame.K_7, "duration": 15.0, "desc": "credit income ×5"},
+    "nuke": {"title": "Nuke", "cost": 1000, "key": pygame.K_8, "duration": 0.0, "desc": "clear the field, full payout"},
+    "overdrive": {"title": "Overdrive", "cost": 250, "key": pygame.K_9, "duration": 10.0, "desc": "click damage ×10"},
+    "chrono": {"title": "Chrono", "cost": 300, "key": pygame.K_0, "duration": 8.0, "desc": "asteroid speed ×0.5"},
+}
+
+# price(name) = entry cost × POWERUP_PER_USE_PRICE_GROWTH ** uses — each
+# activation raises that powerup's own next price, so a nuke stays a
+# decision instead of a rhythm button.
+POWERUP_PER_USE_PRICE_GROWTH = 1.25
+
+# A running timed effect glows green in the HUD indicator with its
+# seconds remaining; activation labels float in the same color.
+POWERUP_ACTIVE_COLOR = (120, 255, 180)
+
+# Magnitudes, one named constant each: gold rush multiplies every mint
+# through the income seam (stacking with the Income upgrade); overdrive
+# multiplies click chip damage only — shots stay instant-kill; chrono
+# halves asteroid velocity while active and the exact factor divides out
+# at expiry so base speed is restored fully.
+POWERUP_GOLD_RUSH_MULT = 5.0
+POWERUP_OVERDRIVE_MULT = 10.0
+POWERUP_CHRONO_SLOW = 0.5
+
+# Panel row 2 + indicator colors: the powerup strip renders under the
+# upgrade cells inside the same panel; active effects also light the
+# small HUD indicator line with their remaining seconds.
+POWERUP_COLOR = (170, 120, 255)        # violet — reads apart from upgrades
+POWERUP_ACTIVE_COLOR = (255, 160, 40)  # orange while an effect's clock runs
 
 # Power-ups (engagement F4): a destroyed non-small rock can drop a timed
 # pickup. Effects are data-driven — every duration and magnitude lives in
