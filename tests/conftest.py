@@ -1,6 +1,7 @@
 """Shared test setup: headless pygame and a pristine logger for every test."""
 
 import os
+import uuid
 
 # Set before any test module imports pygame so the suite runs on machines
 # with no display (CI, sandboxes). setdefault keeps explicit overrides working.
@@ -18,5 +19,4 @@ def fresh_logger(tmp_path, monkeypatch):
     monkeypatch.setattr(logger, "_STATE_LOG_PATH", str(tmp_path / "game_state.jsonl"))
     monkeypatch.setattr(logger, "_EVENT_LOG_PATH", str(tmp_path / "game_events.jsonl"))
     monkeypatch.setattr(logger, "_frame_count", 0)
-    monkeypatch.setattr(logger, "_state_log_initialized", False)
-    monkeypatch.setattr(logger, "_event_log_initialized", False)
+    monkeypatch.setattr(logger, "_session_id", uuid.uuid4().hex)
