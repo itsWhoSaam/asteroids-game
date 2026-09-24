@@ -13,7 +13,7 @@ from constants import (
     PLAYER_START_LIVES,
     SHAKE_PLAYER_DEATH,
 )
-from hud import SAVE_PATH, Score
+from hud import SAVE_PATH, ComboMeter, Score, combo_multiplier
 from logger import log_event
 import sound
 from particles import burst
@@ -43,6 +43,9 @@ class Game:
         self.lives = PLAYER_START_LIVES
         self.wave = 1
         self.state = "playing"  # "playing" | "game_over"
+        # Insanity core: the shot-kill chain. Score-only — register_kill is
+        # the ONLY route into it, so clicks and nukes stay combo-free.
+        self.combo = ComboMeter()
 
     @property
     def score(self):
@@ -72,6 +75,26 @@ class Game:
         """Points for a destroyed asteroid, through the F1 seam."""
         self._score.add_score(points)
 
+    def register_kill(self, points):
+        """A rock destroyed by player-or-drone fire: advance the chain and
+        pay points × the chain multiplier through the F1 seam.
+
+        Combo is a score feature, not a currency feature (locked decision):
+        the destruction diff's credit mint never sees the multiplier. Chip
+        clicks and nukes never route here — they pay credits through the
+        diff, combo-free, exactly as they did before this build."""
+        mult = combo_multiplier(self.combo.register_kill())
+        self.add_score(round(points * mult))
+
+    def break_combo(self):
+        """Drop the live chain — the price of a life lost or a dash."""
+        self.combo.break_chain()
+
+    def tick(self, dt):
+        """Run-state frame tick: the combo window drains on the same dt the
+        simulation runs on, so a hit-stop freeze holds the chain alive too."""
+        self.combo.tick(dt)
+
     def player_hit(self):
         """A live (playing) collision reached the ship: a stocked shield eats
         it first — the charge is spent, no life lost, no respawn (F4) —
@@ -90,6 +113,9 @@ class Game:
         if self.shake is not None:
             self.shake.kick(SHAKE_PLAYER_DEATH)
         self.lives -= 1
+        # A life lost breaks the chain — the multiplier dies with the ship.
+        # An absorbed (shielded) hit returned above and keeps its chain.
+        self.break_combo()
         if self.lives <= 0:
             self.lives = 0
             self.game_over()
@@ -112,6 +138,8 @@ class Game:
         self.lives = PLAYER_START_LIVES
         self.wave = 1
         self.state = "playing"
+        # Insanity core: the combo meter and its run stats die with the run.
+        self.combo.reset()
         # kill() detaches each sprite from ALL its groups (asteroids are also
         # in updatable/drawable) — emptying one group would leave zombie rocks
         # drifting and rendering, unshootable.

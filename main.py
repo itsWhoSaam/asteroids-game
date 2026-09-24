@@ -9,6 +9,7 @@ from constants import (
     FLOAT_FONT_SIZE,
     FLOAT_LIFETIME_SECONDS,
     FLOAT_RISE_SPEED,
+    HUD_CREDITS_ROW,
     HUD_LINE_STEP,
     HUD_MARGIN,
     IDLE_AUTOSAVE_SECONDS,
@@ -77,7 +78,11 @@ def handle_collisions(asteroids, shots, player1, game, powerups, shake=None):
                     )
                 asteroid.split()
                 shot.kill()
-                game.add_score(points_for(asteroid.radius))
+                # Insanity core: shot kills (player OR drone — drones fire
+                # real shots into this same group) advance the combo chain
+                # and pay points × its multiplier. Chip clicks and nukes
+                # never route here: credits-only, combo-free.
+                game.register_kill(points_for(asteroid.radius))
                 # A destroyed non-small rock occasionally pays a pickup (F4).
                 # The pure rolls keep the decision testable; the new PowerUp
                 # joins its containers like every other sprite.
@@ -231,9 +236,10 @@ class FloatingText(pygame.sprite.Sprite):
 
 
 def draw_credits(screen, credits):
-    """Idle ledger readout under the score HUD — the economy's visible half."""
+    """Idle ledger readout under the insanity HUD slots — the economy's
+    visible half. Row 5: below the combo (row 3) and dash (row 4) slots."""
     surface = hud_font().render(f"Credits: {int(credits)}", True, FLOAT_COLOR)
-    screen.blit(surface, (HUD_MARGIN, HUD_MARGIN + 3 * HUD_LINE_STEP))
+    screen.blit(surface, (HUD_MARGIN, HUD_MARGIN + HUD_CREDITS_ROW * HUD_LINE_STEP))
 
 
 def main():
@@ -379,6 +385,7 @@ def main():
 
         handle_collisions(asteroids, shots, player1, game, powerups, shake)
         maybe_advance_wave(game, asteroid_field, banner)
+        game.tick(dt)  # insanity core: the combo window drains on sim time
         banner.update(dt)
         shake.update(dt)  # F5: decay toward still before the frame is blitted
 
@@ -411,7 +418,8 @@ def main():
         screen.blit(world, shake.offset())
 
         draw_hud(screen, game.score, lives=game.lives, wave=game.wave,
-                 muted=game.muted)
+                 muted=game.muted, combo=game.combo,
+                 dash_timer=player1.dash_timer if game.state == "playing" else None)
         draw_credits(screen, economy.credits)
         offline_banner.update(dt)
         offline_banner.draw(screen)
@@ -419,7 +427,9 @@ def main():
         shop.draw_panel(screen)
         shop.draw_powerups(screen)
         if game.state == "game_over":
-            draw_game_over(screen, game.score, new_high=game.new_high)
+            draw_game_over(screen, game.score, new_high=game.new_high,
+                           top_chain=game.combo.top,
+                           best_multiplier=game.combo.best_multiplier)
         banner.draw(screen)  # on top: the WAVE n flash overlays everything
 
         pygame.display.flip()
