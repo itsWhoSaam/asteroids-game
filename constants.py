@@ -276,3 +276,57 @@ SFX_POWERUP_VOLUME = 0.5
 SFX_GAME_OVER_DURATION = 0.8
 SFX_GAME_OVER_SWEEP = (440.0, 90.0)
 SFX_GAME_OVER_VOLUME = 0.6
+
+# --- Insanity core: combo, hit-stop, dash ---------------------------------
+# All numbers here are playtest starting values from the insanity spec; none
+# is structural. Every tunable lives in this one block — tuning happens
+# here, never in gameplay code.
+
+# Combo multiplier (score feature, not a currency feature): every rock
+# destroyed by player-or-drone fire within the window extends the chain,
+# and the kill's points pay through combo_multiplier(chain). Credits mint
+# exactly as before — the multiplier never touches the ledger.
+COMBO_WINDOW_SECONDS = 3.0        # chain lifetime after each kill
+COMBO_STEP = 0.25                 # multiplier added per chain link (x2 at chain 5)
+COMBO_CAP = 5.0                   # multiplier ceiling
+COMBO_MILESTONES = (5, 10, 20, 50)  # chains that log + chirp once per run
+COMBO_BREAK_MIN_CHAIN = 3         # breaking a shorter chain is silent, unlogged
+COMBO_COLOR = (255, 191, 0)       # amber readout under the wave slot
+
+# Hit-stop: every destruction holds the whole simulation for a beat. The
+# freeze itself and the shake decay tick on real dt so the pause always ends.
+HIT_STOP_BASE_S = 0.05            # one kill in a frame
+HIT_STOP_MULTI_S = 0.09           # several dying inside one frame
+# The multi duration expressed in freeze(scale=...) units, so one formula
+# prices every request and the two named durations stay the source of truth.
+HIT_STOP_MULTI_SCALE = HIT_STOP_MULTI_S / HIT_STOP_BASE_S
+
+# Dash: a SHIFT impulse along the nose. I-frames ride the respawn grace via
+# max() — never shorter — and dashing breaks the combo: the panic button
+# has a price. The impulse bleeds off over DASH_DECAY_S, so the ship glides
+# then handles normally.
+DASH_IMPULSE = 420.0              # px/s added to velocity along the nose
+DASH_IFRAME_S = 0.25              # invulnerability granted
+DASH_COOLDOWN_S = 2.0             # between dashes
+DASH_DECAY_S = 0.4                # the impulse bleeds off over this long
+DASH_DECAY = 0.001                # impulse fraction retained after one second
+DASH_COOLING_COLOR = (110, 110, 110)  # the cooling slot, dim against HUD_COLOR
+
+# HUD rows the insanity slots claim: the combo readout sits directly under
+# the wave slot, the dash slot below it, and the credits line (idle core)
+# drops beneath both so nothing overlaps.
+HUD_CREDITS_ROW = 5
+
+# Dash: a crisp whoosh — bright noise over a fast falling chirp, swelling
+# and gone in under a fifth of a second. Recipe follows the F6 builders.
+SFX_DASH = "dash"
+SFX_DASH_DURATION = 0.18
+SFX_DASH_SWEEP = (1400.0, 180.0)
+SFX_DASH_BRIGHTNESS = 0.7
+SFX_DASH_VOLUME = 0.45
+
+# Combo break: a descending sigh — the chain dying audibly.
+SFX_COMBO_BREAK = "combo_break"
+SFX_COMBO_BREAK_DURATION = 0.5
+SFX_COMBO_BREAK_SWEEP = (520.0, 140.0)
+SFX_COMBO_BREAK_VOLUME = 0.5
