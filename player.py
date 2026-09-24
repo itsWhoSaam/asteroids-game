@@ -2,11 +2,15 @@ import pygame
 from circleshape import CircleShape
 from constants import (
     LINE_WIDTH,
+    PLAYER_BLINK_HZ,
+    PLAYER_INVULNERABILITY_SECONDS,
     PLAYER_RADIUS,
     PLAYER_SHOOT_SPEED,
     PLAYER_SPEED,
     PLAYER_TURN_SPEED,
-    PLAYER_SHOOT_COOLDOWN_SECONDS
+    PLAYER_SHOOT_COOLDOWN_SECONDS,
+    SCREEN_HEIGHT,
+    SCREEN_WIDTH,
 )
 from shot import Shot
 
@@ -15,7 +19,24 @@ class Player(CircleShape):
     def __init__(self, x, y):
         super().__init__(x, y, PLAYER_RADIUS )
         self.shot_cooldown_timer = 0
+        # Grace window after a respawn: dt-decremented like shot_cooldown_timer.
+        self.invulnerability_timer = 0.0
         self.rotation = 0
+
+    @property
+    def invulnerable(self):
+        return self.invulnerability_timer > 0
+
+    def respawn(self):
+        """Center the ship, zero its velocity, grant the grace window.
+
+        Invulnerability is what lets a respawning ship sit safely inside an
+        asteroid it materialized on — the collision sweep checks it before
+        resolving any hit.
+        """
+        self.position = pygame.Vector2(SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2)
+        self.velocity = pygame.Vector2(0, 0)
+        self.invulnerability_timer = PLAYER_INVULNERABILITY_SECONDS
 
     # in the Player class
     def triangle(self):
@@ -27,6 +48,10 @@ class Player(CircleShape):
         return [a, b, c]
     
     def draw(self, screen):
+        # Grace-window blink: skip the draw on alternate half-cycles so the
+        # invulnerable ship flickers instead of sitting inside a rock unseen.
+        if self.invulnerable and (self.invulnerability_timer * PLAYER_BLINK_HZ) % 1 >= 0.5:
+            return
         pygame.draw.polygon(
             screen,
             "white",
@@ -40,6 +65,7 @@ class Player(CircleShape):
     def update(self, dt):
         keys = pygame.key.get_pressed()
         self.shot_cooldown_timer -= dt
+        self.invulnerability_timer -= dt
 
         if keys[pygame.K_a]:
             self.rotate(-dt)
