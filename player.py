@@ -1,6 +1,10 @@
 import pygame
 from circleshape import CircleShape
 from constants import (
+    DASH_COOLDOWN_S,
+    DASH_DECAY,
+    DASH_IMPULSE,
+    DASH_IFRAME_S,
     LINE_WIDTH,
     PALETTE,
     PLAYER_BLINK_HZ,
@@ -19,6 +23,7 @@ from constants import (
     SCREEN_HEIGHT,
     SCREEN_WIDTH,
 )
+from logger import log_event
 from powerups import PowerUpType
 import sound
 from shot import Shot
@@ -39,6 +44,11 @@ class Player(CircleShape):
         self.powerup_timers = {}
         self.shield_hits = 0
         self.rotation = 0
+        # Dash (insanity core): the impulse is the ship's only velocity —
+        # movement is otherwise direct position stepping — and dash_timer
+        # is the shared cooldown + decay clock.
+        self.velocity = pygame.Vector2(0, 0)
+        self.dash_timer = 0.0
 
     @property
     def invulnerable(self):
@@ -128,11 +138,44 @@ class Player(CircleShape):
     def rotate(self, dt):
         self.rotation += PLAYER_TURN_SPEED * dt
 
+    def dash(self):
+        """SHIFT (insanity core): an impulse along the nose with brief
+        i-frames. False while cooling down.
+
+        The impulse is the ship's only velocity, and it owns its decay
+        (update bleeds it while the cooldown clock runs). I-frames ride the
+        existing invulnerability timer via max() — a respawn grace is never
+        shortened, and the blink draw already shows the safe window. The
+        combo break is the caller's wiring (main.try_dash): the ship does
+        not own run state."""
+        if self.dash_timer > 0:
+            return False
+        self.dash_timer = DASH_COOLDOWN_S
+        self.velocity += pygame.Vector2(0, 1).rotate(self.rotation) * DASH_IMPULSE
+        self.invulnerability_timer = max(self.invulnerability_timer, DASH_IFRAME_S)
+        # F6: sound.play never raises — a no-op without a mixer or muted.
+        sound.play(sound.SFX_DASH)
+        log_event("dash_used")
+        return True
+
     def update(self, dt):
         keys = pygame.key.get_pressed()
         self.shot_cooldown_timer -= dt
         self.invulnerability_timer -= dt
         self._tick_powerups(dt)
+
+        # Dash glide (insanity core): the impulse bleeds off exponentially
+        # while the cooldown clock runs — the visible glide is the first
+        # DASH_DECAY_S — and when the clock empties, the velocity is
+        # zeroed so the ship handles normally again. A frozen frame
+        # (hit-stop) steps dt=0: no glide, no decay, no cooldown tick.
+        if self.dash_timer > 0:
+            self.dash_timer = max(0.0, self.dash_timer - dt)
+            self.position += self.velocity * dt
+            if self.velocity.length() > 0:
+                self.velocity *= DASH_DECAY ** dt
+            if self.dash_timer == 0:
+                self.velocity.update((0, 0))  # glide over: clean handback
 
         if keys[pygame.K_a]:
             self.rotate(-dt)
@@ -142,7 +185,11 @@ class Player(CircleShape):
             self.move(dt)
         if keys[pygame.K_s]:
             self.move(-dt)
-        if keys[pygame.K_SPACE]:
+        # A held space fires on the cooldown clock, which only advances on
+        # sim time. A frozen frame (hit-stop) steps dt=0: firing here would
+        # machine-gun stacked shots at a paused cooldown, so a zero-dt
+        # frame never pulls the trigger.
+        if keys[pygame.K_SPACE] and dt > 0:
             self.shoot()
 
     def _tick_powerups(self, dt):

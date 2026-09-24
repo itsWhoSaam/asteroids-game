@@ -17,6 +17,8 @@ from asteroid import Asteroid
 from constants import (
     PALETTE,
     SFX_CHANNELS,
+    SFX_COMBO_BREAK,
+    SFX_DASH,
     SFX_EXPLOSION_LARGE,
     SFX_EXPLOSION_MEDIUM,
     SFX_EXPLOSION_SMALL,
@@ -76,6 +78,8 @@ def test_init_builds_every_named_cue():
         SFX_EXPLOSION_LARGE,
         SFX_POWERUP,
         SFX_GAME_OVER,
+        SFX_DASH,
+        SFX_COMBO_BREAK,
     }
     sound.init()  # idempotent: a second call must not rebuild or crash
     assert set(sound._sounds)  # still populated
@@ -90,6 +94,8 @@ def test_init_builds_every_named_cue():
         (SFX_EXPLOSION_LARGE, 0.3),
         (SFX_POWERUP, 0.1),
         (SFX_GAME_OVER, 0.5),
+        (SFX_DASH, 0.1),
+        (SFX_COMBO_BREAK, 0.3),
     ],
 )
 def test_every_sfx_is_a_nonempty_sound_in_mixer_format(name, min_duration):

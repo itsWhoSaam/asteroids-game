@@ -12,6 +12,13 @@ import pygame
 
 from constants import (
     ASTEROID_MIN_RADIUS,
+    COMBO_BREAK_MIN_CHAIN,
+    COMBO_CAP,
+    COMBO_COLOR,
+    COMBO_MILESTONES,
+    COMBO_STEP,
+    COMBO_WINDOW_SECONDS,
+    DASH_COOLING_COLOR,
     GAME_OVER_FONT_SIZE,
     GAME_OVER_LINE_STEP,
     HUD_COLOR,
@@ -26,6 +33,7 @@ from constants import (
     WAVE_BANNER_SECONDS,
 )
 from logger import log_event
+import sound
 
 SAVE_PATH = "game_save.json"
 
@@ -139,6 +147,70 @@ class Score:
         self._beaten = False
 
 
+def combo_multiplier(chain, step=COMBO_STEP, cap=COMBO_CAP):
+    """Pure: points multiplier for a chain of `chain` shot kills.
+
+    The first kill pays face value; each further link inside the window adds
+    `step`, capped. 0.25/step means x2 at chain 5 — the milestone tier."""
+    if chain <= 1:
+        return 1.0
+    return min(1.0 + step * (chain - 1), cap)
+
+
+class ComboMeter:
+    """The shot-kill chain (insanity core): score-only, never credits.
+
+    register_kill extends the chain and re-arms the window; tick drains the
+    window on the dt the simulation runs on (the house dt-timer pattern, so
+    tests step it and hit-stop holds it). The run's top chain and best
+    multiplier survive breaks — they are the game-over stat lines.
+    """
+
+    def __init__(self):
+        self.chain = 0
+        self.window = 0.0
+        self.top = 0  # best chain this run — the game-over stat
+        self.best_multiplier = 1.0
+        self._milestone_hit = set()
+
+    @property
+    def active(self):
+        return self.chain > 0
+
+    def register_kill(self):
+        """A rock died to player-or-drone fire: extend the chain and return
+        it. Milestones log once per run — a re-climbed tier stays silent."""
+        self.chain += 1
+        self.window = COMBO_WINDOW_SECONDS
+        self.top = max(self.top, self.chain)
+        self.best_multiplier = max(self.best_multiplier, combo_multiplier(self.chain))
+        if self.chain in COMBO_MILESTONES and self.chain not in self._milestone_hit:
+            self._milestone_hit.add(self.chain)
+            log_event("combo_milestone", chain=self.chain)
+        return self.chain
+
+    def tick(self, dt):
+        """Drain the window; expiry breaks the chain (the house dt-timer)."""
+        if self.window <= 0:
+            return
+        self.window -= dt
+        if self.window <= 0:
+            self.break_chain()
+
+    def break_chain(self):
+        """Drop the chain. Only a chain worth naming (>= the min) logs and
+        sighs — a two-kill stumble is noise, not an event."""
+        if self.chain >= COMBO_BREAK_MIN_CHAIN:
+            log_event("combo_break", chain=self.chain)
+            sound.play(sound.SFX_COMBO_BREAK)
+        self.chain = 0
+        self.window = 0.0
+
+    def reset(self):
+        """Full-restart hook: every counter, including the run stats."""
+        self.__init__()
+
+
 _hud_font_cache = None
 
 
@@ -150,11 +222,16 @@ def hud_font():
     return _hud_font_cache
 
 
-def draw_hud(screen, score, lives=0, wave=0, muted=False):
+def draw_hud(screen, score, lives=0, wave=0, muted=False, combo=None,
+             dash_timer=None):
     """Draw the HUD top-left. Score always shows; the lives and wave slots
     stay hidden while zero — F2 and F3 feed them. While playback is muted
     (F6) a small MUTED tag sits top-right — the only visible feedback
-    silence ever gives."""
+    silence ever gives.
+
+    Insanity core slots, passed only while a run is live: the combo readout
+    sits directly under the wave slot, amber and dimming as its window
+    drains; the dash slot below shows ready or the cooling seconds."""
     lines = [f"Score: {score}"]
     if lives:
         lines.append(f"Lives: {lives}")
@@ -164,6 +241,27 @@ def draw_hud(screen, score, lives=0, wave=0, muted=False):
     for row, text in enumerate(lines):
         surface = font.render(text, True, HUD_COLOR)
         screen.blit(surface, (HUD_MARGIN, HUD_MARGIN + row * HUD_LINE_STEP))
+    # The insanity slots stack under whatever the basics drew (combo
+    # under the wave slot); main passes them only during play.
+    slot_row = len(lines)
+    if combo is not None and combo.active:
+        remaining = max(combo.window, 0.0)
+        surface = font.render(
+            f"COMBO x{combo.chain} ({remaining:.1f})", True, COMBO_COLOR
+        )
+        # Amber, dimming as the window drains — the chain visibly dying
+        # with its clock, the same alpha-fade idiom as WaveBanner.
+        surface.set_alpha(int(255 * remaining / COMBO_WINDOW_SECONDS))
+        screen.blit(surface, (HUD_MARGIN, HUD_MARGIN + slot_row * HUD_LINE_STEP))
+    if dash_timer is not None:
+        if dash_timer > 0:
+            text, color = f"DASH {dash_timer:.1f}", DASH_COOLING_COLOR
+        else:
+            text, color = "DASH READY", HUD_COLOR
+        surface = font.render(text, True, color)
+        screen.blit(
+            surface, (HUD_MARGIN, HUD_MARGIN + (slot_row + 1) * HUD_LINE_STEP)
+        )
     if muted:
         surface = font.render("MUTED", True, HUD_COLOR)
         rect = surface.get_rect(topright=(SCREEN_WIDTH - HUD_MARGIN, HUD_MARGIN))
@@ -181,12 +279,18 @@ def game_over_font():
     return _game_over_font_cache
 
 
-def draw_game_over(screen, score, new_high=False):
+def draw_game_over(screen, score, new_high=False, top_chain=0,
+                   best_multiplier=1.0):
     """Centered game-over overlay (engagement F2): final score, the
-    new-high-score state when the run set a record, and the R/Q prompt."""
+    new-high-score state when the run set a record, the insanity run's top
+    chain and best multiplier when it chained at all, and the R/Q prompt."""
     lines = [f"Game over — score {score}"]
     if new_high:
         lines.append("New high score!")
+    if top_chain > 0:
+        lines.append(
+            f"Top chain {top_chain} — best multiplier x{best_multiplier:g}"
+        )
     lines.append("press R to restart, Q to quit")
 
     font = game_over_font()

@@ -9,6 +9,9 @@ from constants import (
     FLOAT_FONT_SIZE,
     FLOAT_LIFETIME_SECONDS,
     FLOAT_RISE_SPEED,
+    HIT_STOP_BASE_S,
+    HIT_STOP_MULTI_SCALE,
+    HUD_CREDITS_ROW,
     HUD_LINE_STEP,
     HUD_MARGIN,
     IDLE_AUTOSAVE_SECONDS,
@@ -43,13 +46,67 @@ def compute_dt(ms):
     return min(ms / 1000, MAX_DT)
 
 
-def handle_collisions(asteroids, shots, player1, game, powerups, shake=None):
+class HitStop:
+    """Freeze-frame on kills (insanity core).
+
+    `remaining` ticks on the real dt so a long request can never stall the
+    loop forever; the sim's dt is gated to 0.0 while it runs —
+    deterministic and testable through effective_frame_dt below.
+    """
+
+    def __init__(self):
+        self.remaining = 0.0
+
+    def freeze(self, scale=1.0):
+        """Request a beat of base seconds × scale. The longest request wins:
+        a later, shorter one may not shorten a freeze already running."""
+        self.remaining = max(self.remaining, HIT_STOP_BASE_S * scale)
+
+    def update(self, real_dt):
+        self.remaining = max(0.0, self.remaining - real_dt)
+
+    @property
+    def frozen(self):
+        return self.remaining > 0
+
+
+def effective_frame_dt(dt, hit_stop):
+    """Pure: the sim dt for a frame — 0.0 while a freeze holds, else real.
+
+    Held by the gate: movement, drones, particles, timers, the banner, and
+    the combo window. Ticking on real dt regardless: the freeze itself and
+    the shake decay, so the pause always ends."""
+    return 0.0 if hit_stop.frozen else dt
+
+
+def freeze_for_destructions(hit_stop, count):
+    """The beat a destruction wave buys: base for one kill in the frame,
+    the multi beat for several, nothing for a cull or a whiff."""
+    if hit_stop is None or count <= 0:
+        return
+    hit_stop.freeze(1.0 if count == 1 else HIT_STOP_MULTI_SCALE)
+
+
+def try_dash(player, game):
+    """SHIFT wiring (insanity core): dash the ship; a successful dash
+    breaks the combo — the escape valve prices its i-frames. Returns
+    whether the dash fired. The wiring lives in main, not on Player: the
+    ship doesn't own run state."""
+    if not player.dash():
+        return False
+    game.break_combo()
+    return True
+
+
+def handle_collisions(asteroids, shots, player1, game, powerups, shake=None,
+                      hit_stop=None):
     # The sweep reports hits to the Game instead of exiting the process
     # (engagement F2): a hit costs one of the lives, the ship respawns
     # invulnerable, and the run ends only at zero lives. Invulnerability is
     # checked before any hit is resolved, so a respawning ship can sit on
     # an asteroid for the grace window without losing another life. The
     # shield rides the same path inside Game.player_hit (F4).
+    shot_kills = 0
     for asteroid in asteroids:
         if not asteroid.alive():
             continue
@@ -77,7 +134,12 @@ def handle_collisions(asteroids, shots, player1, game, powerups, shake=None):
                     )
                 asteroid.split()
                 shot.kill()
-                game.add_score(points_for(asteroid.radius))
+                # Insanity core: shot kills (player OR drone — drones fire
+                # real shots into this same group) advance the combo chain
+                # and pay points × its multiplier. Chip clicks and nukes
+                # never route here: credits-only, combo-free.
+                game.register_kill(points_for(asteroid.radius))
+                shot_kills += 1
                 # A destroyed non-small rock occasionally pays a pickup (F4).
                 # The pure rolls keep the decision testable; the new PowerUp
                 # joins its containers like every other sprite.
@@ -86,6 +148,10 @@ def handle_collisions(asteroids, shots, player1, game, powerups, shake=None):
                     PowerUp(asteroid.position.x, asteroid.position.y, kind)
                     log_event("powerup_spawned", powerup_type=kind.value)
                 break  # the hit killed the asteroid; skip its remaining shots
+
+    # Insanity core: the frame's shot kills buy a freeze — one rock is a
+    # base beat, several dying in one sweep is the multi beat.
+    freeze_for_destructions(hit_stop, shot_kills)
 
     # Pickups collect on player overlap — during play only, mirroring the
     # hit branch: a dead run grants nothing (F4).
@@ -231,9 +297,10 @@ class FloatingText(pygame.sprite.Sprite):
 
 
 def draw_credits(screen, credits):
-    """Idle ledger readout under the score HUD — the economy's visible half."""
+    """Idle ledger readout under the insanity HUD slots — the economy's
+    visible half. Row 5: below the combo (row 3) and dash (row 4) slots."""
     surface = hud_font().render(f"Credits: {int(credits)}", True, FLOAT_COLOR)
-    screen.blit(surface, (HUD_MARGIN, HUD_MARGIN + 3 * HUD_LINE_STEP))
+    screen.blit(surface, (HUD_MARGIN, HUD_MARGIN + HUD_CREDITS_ROW * HUD_LINE_STEP))
 
 
 def main():
@@ -264,6 +331,9 @@ def main():
     # Game and the sweep get it so they can kick it where lives are lost
     # and rocks die.
     shake = Shake()
+    # Insanity core: the hit-stop freeze lives in main for the same reason —
+    # it gates the sim dt, not the world.
+    hit_stop = HitStop()
     game = Game(player1, asteroids, shots, powerups, particles=particles, shake=shake)
     # F6: start from the persisted mute preference — the sound module only
     # learns it here; playback stays suppressed either way.
@@ -349,6 +419,10 @@ def main():
                 powerup = shop.handle_powerup_key(event.key)
                 if powerup is not None:
                     if powerup == "nuke":
+                        # The whole field dying in one call is the multi
+                        # beat (a lone rock's nuke is a base beat) — credits
+                        # still mint through the diff, combo-free.
+                        freeze_for_destructions(hit_stop, len(asteroids))
                         nuke_field(asteroids)
                     sound.play(SFX_POWERUP)
                     log_event("powerup_activated", name=powerup)
@@ -365,26 +439,45 @@ def main():
                 # shares one downstream mint path (the group diff below).
                 target = asteroid_at(asteroids, event.pos)
                 if target is not None:
-                    target.take_chip(click_damage(shop, economy))
+                    # A click kill is still a destruction: one base beat,
+                    # combo-free (take_chip never routes to register_kill).
+                    destroyed = target.take_chip(click_damage(shop, economy))
+                    freeze_for_destructions(hit_stop, 1 if destroyed else 0)
+            if (
+                event.type == pygame.KEYDOWN
+                and event.key in (pygame.K_LSHIFT, pygame.K_RSHIFT)
+                and game.state == "playing"
+            ):
+                # Dash (insanity core): L/R-SHIFT keydown dashes along the
+                # nose. Gated to play so a SHIFT press on the game-over
+                # screen can't spend the cooldown.
+                try_dash(player1, game)
 
         ms = game_clk.tick(60)
         dt = compute_dt(ms)
-        updatable.update(dt)
+        # Insanity core: the freeze-frame holds the whole simulation —
+        # movement, drones, particles, timers, banner, combo window — while
+        # the freeze and the shake decay on real dt so the pause always ends.
+        hit_stop.update(dt)
+        sim_dt = effective_frame_dt(dt, hit_stop)
+        updatable.update(sim_dt)
         # player1.update(dt)
 
         # Drone turrets fire real shots into the same pipeline (drones PR):
         # the sweep below and the destruction diff treat them exactly like
         # the player's own — one destruction path pays every source.
-        drones.update(dt, player1, asteroids, shots)
+        drones.update(sim_dt, player1, asteroids, shots)
 
-        handle_collisions(asteroids, shots, player1, game, powerups, shake)
+        handle_collisions(asteroids, shots, player1, game, powerups, shake,
+                          hit_stop=hit_stop)
         maybe_advance_wave(game, asteroid_field, banner)
-        banner.update(dt)
+        game.tick(sim_dt)  # insanity core: the combo window drains on sim time
+        banner.update(sim_dt)
         shake.update(dt)  # F5: decay toward still before the frame is blitted
 
         # Bought powerups tick on the dt-timer pattern: expire effects,
         # then publish the chrono scale the whole field reads this frame.
-        economy.tick_powerups(dt)
+        economy.tick_powerups(sim_dt)
         Asteroid.speed_scale = economy.chrono_scale()
 
         # Destruction → credits: diff this frame's field against the last,
@@ -411,7 +504,8 @@ def main():
         screen.blit(world, shake.offset())
 
         draw_hud(screen, game.score, lives=game.lives, wave=game.wave,
-                 muted=game.muted)
+                 muted=game.muted, combo=game.combo,
+                 dash_timer=player1.dash_timer if game.state == "playing" else None)
         draw_credits(screen, economy.credits)
         offline_banner.update(dt)
         offline_banner.draw(screen)
@@ -419,7 +513,9 @@ def main():
         shop.draw_panel(screen)
         shop.draw_powerups(screen)
         if game.state == "game_over":
-            draw_game_over(screen, game.score, new_high=game.new_high)
+            draw_game_over(screen, game.score, new_high=game.new_high,
+                           top_chain=game.combo.top,
+                           best_multiplier=game.combo.best_multiplier)
         banner.draw(screen)  # on top: the WAVE n flash overlays everything
 
         pygame.display.flip()

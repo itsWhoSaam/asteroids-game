@@ -19,6 +19,15 @@ import pygame
 from constants import (
     ASTEROID_MIN_RADIUS,
     SFX_CHANNELS,
+    SFX_COMBO_BREAK,
+    SFX_COMBO_BREAK_DURATION,
+    SFX_COMBO_BREAK_SWEEP,
+    SFX_COMBO_BREAK_VOLUME,
+    SFX_DASH,
+    SFX_DASH_BRIGHTNESS,
+    SFX_DASH_DURATION,
+    SFX_DASH_SWEEP,
+    SFX_DASH_VOLUME,
     SFX_EXPLOSION_LARGE,
     SFX_EXPLOSION_MEDIUM,
     SFX_EXPLOSION_SMALL,
@@ -67,6 +76,9 @@ def init():
             SFX_EXPLOSION_LARGE: build_explosion("large"),
             SFX_POWERUP: build_powerup(),
             SFX_GAME_OVER: build_game_over(),
+            # Insanity core (recipes live in the INSANITY constants block):
+            SFX_DASH: build_dash(),
+            SFX_COMBO_BREAK: build_combo_break(),
         }
     except Exception as exc:
         _sounds = {}
@@ -212,3 +224,33 @@ def build_game_over():
         )
 
     return _make_sound(_render(SFX_GAME_OVER_DURATION, wave))
+
+
+def build_dash():
+    """A crisp whoosh: bright noise over a fast falling chirp, swelling
+    and gone in under a fifth of a second (insanity core)."""
+    start, end = SFX_DASH_SWEEP
+    rng = random.Random(SFX_NOISE_SEED)  # deterministic, like the explosions
+
+    def wave(t, progress):
+        window = min(progress / 0.25, (1.0 - progress) / 0.4, 1.0)
+        noise = rng.uniform(-1.0, 1.0) * SFX_DASH_BRIGHTNESS
+        air = chirp(t, start, end, SFX_DASH_DURATION) * 0.5
+        return (noise + air) * max(0.0, window) * SFX_DASH_VOLUME
+
+    return _make_sound(_render(SFX_DASH_DURATION, wave))
+
+
+def build_combo_break():
+    """A descending sigh: the chain dying audibly (insanity core)."""
+    start, end = SFX_COMBO_BREAK_SWEEP
+
+    def wave(t, progress):
+        window = min(progress / 0.15, (1.0 - progress) / 0.5, 1.0)
+        return (
+            chirp(t, start, end, SFX_COMBO_BREAK_DURATION)
+            * max(0.0, window)
+            * SFX_COMBO_BREAK_VOLUME
+        )
+
+    return _make_sound(_render(SFX_COMBO_BREAK_DURATION, wave))
