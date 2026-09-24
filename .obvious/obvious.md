@@ -48,6 +48,7 @@ Flat, single-app repo — all source at root (depth ≤ 2, no sub-apps):
 | `game.py` | `Game` — run state (score, lives, wave, phase); respawn/invulnerability grants, game-over and full-restart resets (engagement F2) |
 | `constants.py` | Tunables: screen 1280x720, player, asteroid, shot parameters; the `PALETTE` table (visual V1) — the single place color lives, every entity draw and fill resolves through it |
 | `circleshape.py` | `CircleShape` base class (position, velocity, radius, `collides_with`) |
+| `comicfx.py` | Procedural comic FX (no assets, no dependencies): `chromatic_circle`/`chromatic_polygon` ink stacks on entities (V2); `build_background()` pre-renders the halftone/action-line overlay once — main blits it at screen level, entity draw functions never paint background (V3) |
 | `player.py` | `Player` — triangle ship, rotate/move/shoot |
 | `asteroid.py` | `Asteroid` — movement, `split()` on hit |
 | `asteroidfield.py` | `AsteroidField` — spawns asteroids from screen edges on a timer; cadence and speed band come from the pure `wave_params(wave)` (engagement F3) |
