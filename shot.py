@@ -1,6 +1,6 @@
 import pygame
 from circleshape import CircleShape
-from constants import LINE_WIDTH, SHOT_RADIUS
+from constants import ASTEROID_MAX_RADIUS, LINE_WIDTH, SHOT_RADIUS
 
 
 class Shot(CircleShape):
@@ -12,3 +12,5 @@ class Shot(CircleShape):
 
     def update(self, dt):
         self.position += self.velocity * dt
+        if self.is_off_screen(ASTEROID_MAX_RADIUS):
+            self.kill()
