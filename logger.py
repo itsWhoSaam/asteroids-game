@@ -2,6 +2,7 @@ import inspect
 import json
 import math
 import sys
+import uuid
 from datetime import datetime
 
 __all__ = ["log_state", "log_event"]
@@ -14,13 +15,27 @@ _STATE_LOG_PATH = "game_state.jsonl"
 _EVENT_LOG_PATH = "game_events.jsonl"
 
 _frame_count = 0
-_state_log_initialized = False
-_event_log_initialized = False
 _start_time = datetime.now()
+
+# One id per process: with append-mode logs, concatenated runs stay
+# distinguishable by slicing on the "session" field.
+_session_id = uuid.uuid4().hex
+
+
+def _append_line(path, line):
+    """Append one line to a JSONL log, tolerating I/O failure.
+
+    A read-only cwd or full disk must print a warning, not crash the game.
+    """
+    try:
+        with open(path, "a") as f:
+            f.write(line)
+    except OSError as exc:
+        print(f"[logger] warning: could not write {path}: {exc}", file=sys.stderr)
 
 
 def log_state():
-    global _frame_count, _state_log_initialized
+    global _frame_count
 
     # Stop logging after `_MAX_SECONDS` seconds
     if _frame_count > _FPS * _MAX_SECONDS:
@@ -107,41 +122,27 @@ def log_state():
         "timestamp": now.strftime("%H:%M:%S.%f")[:-3],
         "elapsed_s": math.floor((now - _start_time).total_seconds()),
         "frame": _frame_count,
+        "session": _session_id,
         "screen_size": screen_size,
         **game_state,
     }
 
-    # New log file on each run
-    mode = "w" if not _state_log_initialized else "a"
-    try:
-        with open(_STATE_LOG_PATH, mode) as f:
-            f.write(json.dumps(entry) + "\n")
-    except OSError as exc:
-        print(f"[logger] warning: could not write {_STATE_LOG_PATH}: {exc}", file=sys.stderr)
-        return
-
-    _state_log_initialized = True
+    # Append unconditionally: prior runs' lines survive (each record carries
+    # its own session id), replacing the per-run "w" truncation that also
+    # let concurrent game instances erase each other's logs.
+    _append_line(_STATE_LOG_PATH, json.dumps(entry) + "\n")
 
 
 def log_event(event_type, **details):
-    global _event_log_initialized
-
     now = datetime.now()
 
     event = {
         "timestamp": now.strftime("%H:%M:%S.%f")[:-3],
         "elapsed_s": math.floor((now - _start_time).total_seconds()),
         "frame": _frame_count,
+        "session": _session_id,
         "type": event_type,
         **details,
     }
 
-    mode = "w" if not _event_log_initialized else "a"
-    try:
-        with open(_EVENT_LOG_PATH, mode) as f:
-            f.write(json.dumps(event) + "\n")
-    except OSError as exc:
-        print(f"[logger] warning: could not write {_EVENT_LOG_PATH}: {exc}", file=sys.stderr)
-        return
-
-    _event_log_initialized = True
+    _append_line(_EVENT_LOG_PATH, json.dumps(event) + "\n")
