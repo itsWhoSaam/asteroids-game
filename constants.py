@@ -18,3 +18,14 @@ PLAYER_SHOOT_COOLDOWN_SECONDS = 0.3
 # Upper bound on a single frame's delta: absorbs stalls (alt-tab, window
 # drag) so entities never move far enough to tunnel through a collision.
 MAX_DT = 0.1
+
+# Scoring by size tier (engagement F1): smaller rocks are worth more.
+SCORE_LARGE = 20
+SCORE_MEDIUM = 50
+SCORE_SMALL = 100
+
+# HUD text (engagement F1), top-left corner.
+HUD_FONT_SIZE = 28
+HUD_MARGIN = 12
+HUD_LINE_STEP = 34
+HUD_COLOR = "white"

@@ -12,3 +12,6 @@ game_state.jsonl
 
 # Runtime game logs
 game_events.jsonl
+
+# Persistent save data (engagement F1)
+game_save.json
