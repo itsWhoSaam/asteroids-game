@@ -32,6 +32,7 @@ The game loops at 60 FPS until the window QUIT event (or Q at the game-over scre
   - `uv run python .obvious/evidence/proof_f2.py` — F2 evidence: game-over overlay + respawn blink PNGs to `/tmp/obv-evidence/`.
   - `uv run python .obvious/evidence/proof_f3.py` — F3 evidence: wave banner + HUD wave-slot PNGs to `/tmp/obv-evidence/`.
   - `uv run python .obvious/evidence/proof_f4.py` — F4 evidence: pickup drop + shield-ring PNGs to `/tmp/obv-evidence/` (also logs `powerup_spawned`/`powerup_collected` to the repo-root events log).
+  - `uv run python .obvious/evidence/proof_f5.py` — F5 evidence: burst before/after PNGs + a two-frame shake-offset pair to `/tmp/obv-evidence/` (offsets printed and asserted different).
 
 ## Codebase Map
 
@@ -47,6 +48,7 @@ Flat, single-app repo — all source at root (depth ≤ 2, no sub-apps):
 | `asteroid.py` | `Asteroid` — movement, `split()` on hit |
 | `asteroidfield.py` | `AsteroidField` — spawns asteroids from screen edges on a timer; cadence and speed band come from the pure `wave_params(wave)` (engagement F3) |
 | `powerups.py` | `PowerUp` pickups — drifting SHIELD/RAPID/TRIPLE drops; pure `drops_powerup`/`pick_type` rolls; effect data lives in `constants.py` tables (engagement F4) |
+| `particles.py` | `Particle` debris + `Shake` — pure `burst_count` sizing, `burst()` spawner wired at the sweep's destruction site and in `Game.player_hit`; shake decays exponentially and offsets the draw origin only (engagement F5) |
 | `shot.py` | `Shot` — player bullets |
 | `hud.py` | `Score` — run score + persistent high score (`game_save.json`), `points_for()` size table, `draw_hud()` overlay, `draw_game_over()` overlay, `WaveBanner` flash (engagement F3) |
 | `logger.py` | `log_state()` / `log_event()` — JSONL state & event logging to repo root |

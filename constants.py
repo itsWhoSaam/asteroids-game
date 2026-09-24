@@ -69,3 +69,19 @@ POWERUP_RADIUS = 14
 POWERUP_DRIFT_SPEED = 30           # px/s — pickups drift, they don't sit still
 POWERUP_FONT_SIZE = 20             # letter label inside the pickup
 POWERUP_SHIELD_RING_GAP = 8        # px between hull edge and the shield ring
+
+# Explosion particles & screen shake (engagement F5): destruction looks and
+# feels like destruction. Burst size scales with the destroyed body's radius;
+# shake offsets the draw origin only (never entity positions) and decays
+# exponentially with the clamped dt.
+PARTICLES_PER_RADIUS = 0.5         # burst count = radius × intensity × this
+PARTICLE_LIFETIME_SECONDS = 0.6
+PARTICLE_RADIUS = 3                # spark size at birth, shrinking with life
+PARTICLE_MIN_SPEED = 40            # px/s debris speed band, before intensity
+PARTICLE_MAX_SPEED = 160
+PLAYER_DEATH_BURST_INTENSITY = 4.0  # the ship's death bursts harder than rocks
+SHAKE_DECAY = 0.001                # magnitude retained after one second
+SHAKE_STOP_EPSILON = 0.1           # below this the shake snaps fully still
+SHAKE_MAX_MAGNITUDE = 20           # px cap so stacked kicks stay sane
+SHAKE_PLAYER_DEATH = 14.0          # px — losing a life rocks the screen
+SHAKE_LARGE_ASTEROID = 6.0         # px — a large rock's death, scaled by size
