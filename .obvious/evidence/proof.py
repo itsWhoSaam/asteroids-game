@@ -6,6 +6,7 @@ import pygame
 from constants import SCREEN_WIDTH, SCREEN_HEIGHT
 from asteroid import Asteroid
 from asteroidfield import AsteroidField
+from game import Game
 from player import Player
 from shot import Shot
 
@@ -16,9 +17,10 @@ updatable, drawable, asteroids, shots = (pygame.sprite.Group() for _ in range(4)
 Asteroid.containers = (asteroids, updatable, drawable)
 Shot.containers = (shots, updatable, drawable)
 AsteroidField.containers = updatable
-AsteroidField()
 Player.containers = (updatable, drawable)
-Player(SCREEN_WIDTH/2, SCREEN_HEIGHT/2)
+player = Player(SCREEN_WIDTH/2, SCREEN_HEIGHT/2)
+# F3: the field reads the wave off the Game, so the Game comes first.
+AsteroidField(Game(player, asteroids, shots))
 
 frames = 0
 while frames < 180:  # 3 simulated seconds at 60fps

@@ -6,7 +6,7 @@ from asteroidfield import AsteroidField
 from game import Game
 from logger import log_state, log_event
 from player import Player
-from hud import draw_hud, draw_game_over, points_for
+from hud import WaveBanner, draw_game_over, draw_hud, points_for
 from shot import Shot
 
 
@@ -43,6 +43,24 @@ def handle_collisions(asteroids, shots, player1, game):
                 break  # the hit killed the asteroid; skip its remaining shots
 
 
+def maybe_advance_wave(game, field, banner):
+    """Start the next wave once the current one was populated and is cleared
+    (engagement F3).
+
+    The populated guard is the trap at both ends of a run: at game start and
+    after R-restart the field is empty with wave at 1 — without it the
+    counter would immediately tick to 2. Game over advances nothing.
+    """
+    if game.state != "playing":
+        return
+    if field.spawned_this_wave == 0 or len(game.asteroids) > 0:
+        return
+    game.wave += 1
+    field.start_wave()  # fresh spawn clock and populated guard for the new wave
+    banner.show(game.wave)
+    log_event("wave_started", wave=game.wave)
+
+
 def main():
     pygame.init()
     game_clk = pygame.time.Clock()
@@ -57,11 +75,16 @@ def main():
     Asteroid.containers = (asteroids, updatable, drawable)
     Shot.containers = (shots, updatable, drawable)
     AsteroidField.containers = updatable
-    asteroid_field = AsteroidField()
 
     Player.containers = (updatable, drawable)
     player1 = Player(SCREEN_WIDTH/2, SCREEN_HEIGHT/2 )
     game = Game(player1, asteroids, shots)
+
+    # The field reads the wave off the Game (F3), so it is built after one
+    # exists. The WAVE 1 flash arms at game start.
+    asteroid_field = AsteroidField(game)
+    banner = WaveBanner()
+    banner.show(game.wave)
 
     while True:
         log_state()
@@ -75,6 +98,11 @@ def main():
                 # block; later features add their input alongside it.
                 if event.key == pygame.K_r:
                     game.restart()
+                    # The field forgets the old wave too, or its populated
+                    # guard would see an empty field and tick to wave 2
+                    # before the fresh run spawns anything.
+                    asteroid_field.start_wave()
+                    banner.show(game.wave)
                 elif event.key == pygame.K_q:
                     pygame.quit()
                     return
@@ -85,16 +113,19 @@ def main():
         # player1.update(dt)
 
         handle_collisions(asteroids, shots, player1, game)
-        
+        maybe_advance_wave(game, asteroid_field, banner)
+        banner.update(dt)
+
         screen.fill("black")
 
         for each in drawable:
             each.draw(screen)
         # player1.draw(screen)
 
-        draw_hud(screen, game.score, lives=game.lives)
+        draw_hud(screen, game.score, lives=game.lives, wave=game.wave)
         if game.state == "game_over":
             draw_game_over(screen, game.score, new_high=game.new_high)
+        banner.draw(screen)  # on top: the WAVE n flash overlays everything
 
         pygame.display.flip()
         
