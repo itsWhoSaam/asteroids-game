@@ -14,6 +14,7 @@ import pygame
 
 from circleshape import CircleShape
 from constants import (
+    PALETTE,
     PARTICLES_PER_RADIUS,
     PARTICLE_LIFETIME_SECONDS,
     PARTICLE_MAX_SPEED,
@@ -70,7 +71,7 @@ class Particle(CircleShape):
         # Filled and shrinking: radius scales with the remaining life,
         # floored at 1px so the final moments still render.
         radius = max(1, int(round(PARTICLE_RADIUS * self.life_fraction)))
-        pygame.draw.circle(screen, "white", self.position, radius)
+        pygame.draw.circle(screen, PALETTE["spark"], self.position, radius)
 
 
 class Shake:

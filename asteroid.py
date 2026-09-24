@@ -4,11 +4,28 @@ from logger import log_event
 
 from circleshape import CircleShape
 from constants import (
+    ASTEROID_KINDS,
     ASTEROID_MAX_RADIUS,
     ASTEROID_MIN_RADIUS,
     CHIP_HEALTH_PER_TIER,
     LINE_WIDTH,
+    PALETTE,
 )
+
+# Size-tier order for the palette lookup: tier 1 (small) → 3 (large).
+ASTEROID_COLOR_KEYS = ("asteroid_s", "asteroid_m", "asteroid_l")
+
+
+def asteroid_color(radius):
+    """Pure palette hue for a rock, by size tier.
+
+    Tiers mirror chip_threshold's round(radius / ASTEROID_MIN_RADIUS) and
+    clamp to the ASTEROID_KINDS band, so any radius resolves to a real
+    swatch — small pink up through large violet.
+    """
+    tier = min(ASTEROID_KINDS, max(1, round(radius / ASTEROID_MIN_RADIUS)))
+    return PALETTE[ASTEROID_COLOR_KEYS[tier - 1]]
+
 
 class Asteroid(CircleShape):
     # Time dilation (chrono powerup): the main loop writes the active
@@ -50,7 +67,7 @@ class Asteroid(CircleShape):
     def draw(self, screen):
         pygame.draw.circle(
             screen,
-            "white",
+            asteroid_color(self.radius),
             self.position,
             self.radius,
             LINE_WIDTH
