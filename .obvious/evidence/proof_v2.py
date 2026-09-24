@@ -24,7 +24,7 @@ import pygame
 
 import hud
 from asteroid import Asteroid
-from comicfx import FRINGE_PX, chromatic_circle
+from comicfx import FRINGE_PX, chromatic_circle, chromatic_polygon
 from constants import (
     LINE_WIDTH,
     PALETTE,
@@ -195,12 +195,23 @@ def assert_composite_budget(screen, rocks, shots, pickups, sparks):
 
 
 def save_ship_closeup(screen, filename):
-    """4× zoom on the shielded ship — the only place the fringes are big
-    enough to read in a PNG."""
-    box = pygame.Rect(
-        int(SCREEN_WIDTH / 2) - 48, int(SCREEN_HEIGHT / 2) - 48, 96, 96
-    )
-    closeup = pygame.transform.scale_by(screen.subsurface(box).copy(), 4)
+    """6× vector zoom of the shielded ship — the fringes re-rendered at
+    native scale (a big draw, not an upscaled crop), the only way the
+    2px fringes read in a PNG."""
+    zoom = 6
+    closeup = pygame.Surface((720, 720))
+    closeup.fill(PALETTE["paper"])
+    origin = pygame.Vector2(SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2)
+    center = pygame.Vector2(360, 360)
+
+    forward = pygame.Vector2(0, 1) * PLAYER_RADIUS
+    side = pygame.Vector2(0, 1).rotate(90) * (PLAYER_RADIUS / 1.5)
+    hull = [center + (point - origin) * zoom for point in
+            (origin + forward, origin - forward - side, origin - forward + side)]
+    chromatic_polygon(closeup, PALETTE["ship"], hull, LINE_WIDTH * 3)
+
+    ring_radius = (PLAYER_RADIUS + POWERUP_SHIELD_RING_GAP) * zoom
+    chromatic_circle(closeup, PALETTE["powerup_shield"], center, ring_radius, LINE_WIDTH * 3)
     pygame.image.save(closeup, filename)
 
 
