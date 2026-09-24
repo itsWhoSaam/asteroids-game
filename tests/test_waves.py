@@ -12,6 +12,7 @@ from asteroid import Asteroid
 from asteroidfield import AsteroidField, wave_params
 from constants import (
     ASTEROID_SPAWN_RATE_SECONDS,
+    PALETTE,
     SCREEN_HEIGHT,
     SCREEN_WIDTH,
     WAVE_BANNER_SECONDS,
@@ -262,7 +263,7 @@ def test_banner_paints_centered_pixels_headless():
     banner = WaveBanner()
     banner.show(3)
 
-    screen.fill("black")
+    screen.fill(PALETTE["paper"])
     banner.draw(screen)
     center_x, center_y = SCREEN_WIDTH // 2, SCREEN_HEIGHT // 3
     samples = [
@@ -270,4 +271,4 @@ def test_banner_paints_centered_pixels_headless():
         for x in range(center_x - 200, center_x + 200, 8)
         for y in range(center_y - 40, center_y + 40, 4)
     ]
-    assert any(pixel != (0, 0, 0, 255) for pixel in samples)
+    assert any(pixel != (*PALETTE["paper"], 255) for pixel in samples)

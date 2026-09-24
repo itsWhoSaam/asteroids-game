@@ -13,6 +13,7 @@ from constants import (
     HUD_MARGIN,
     IDLE_AUTOSAVE_SECONDS,
     MAX_DT,
+    PALETTE,
     POWERUPS,
     POWERUP_ACTIVE_COLOR,
     SFX_POWERUP,
@@ -399,14 +400,14 @@ def main():
             autosave_timer = 0.0
             economy.save()
 
-        world.fill("black")
+        world.fill(PALETTE["paper"])
         for each in drawable:
             each.draw(world)
 
         # The world is blitted at the shaken offset — the draw origin moves,
         # entities don't. HUD and banners draw after, unshaken, so the
         # score stays readable while the world rocks (F5).
-        screen.fill("black")
+        screen.fill(PALETTE["paper"])
         screen.blit(world, shake.offset())
 
         draw_hud(screen, game.score, lives=game.lives, wave=game.wave,

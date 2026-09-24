@@ -2,6 +2,7 @@ import pygame
 from circleshape import CircleShape
 from constants import (
     LINE_WIDTH,
+    PALETTE,
     PLAYER_BLINK_HZ,
     PLAYER_INVULNERABILITY_SECONDS,
     PLAYER_RADIUS,
@@ -108,7 +109,7 @@ class Player(CircleShape):
             return
         pygame.draw.polygon(
             screen,
-            "white",
+            PALETTE["ship"],
             self.triangle(),
             LINE_WIDTH
         )
@@ -118,7 +119,7 @@ class Player(CircleShape):
         if self.shielded:
             pygame.draw.circle(
                 screen,
-                "white",
+                PALETTE["powerup_shield"],
                 self.position,
                 self.radius + POWERUP_SHIELD_RING_GAP,
                 LINE_WIDTH,
