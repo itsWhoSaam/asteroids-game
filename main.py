@@ -1,7 +1,7 @@
 import pygame
 import sys
 
-from constants import SCREEN_WIDTH, SCREEN_HEIGHT
+from constants import MAX_DT, SCREEN_WIDTH, SCREEN_HEIGHT
 from asteroid import Asteroid
 from asteroidfield import AsteroidField
 from logger import log_state, log_event
@@ -9,17 +9,28 @@ from player import Player
 from shot import Shot
 
 
+def compute_dt(ms):
+    """Clamped frame delta: a stall (alt-tab, window drag) must never move
+    entities far enough to skip over a collision unchecked."""
+    return min(ms / 1000, MAX_DT)
+
+
 def handle_collisions(asteroids, shots, player1):
     for asteroid in asteroids:
+        if not asteroid.alive():
+            continue
+        if asteroid.collides_with(player1):
+            log_event("player_hit")
+            print("Game over!")
+            sys.exit()
         for shot in shots:
-            if asteroid.collides_with(player1):
-                log_event("player_hit")
-                print("Game over!")
-                sys.exit()
+            if not shot.alive():
+                continue
             if asteroid.collides_with(shot):
                 log_event("asteroid_shot")
                 asteroid.split()
                 shot.kill()
+                break  # the hit killed the asteroid; skip its remaining shots
 
 
 def main():
@@ -48,10 +59,11 @@ def main():
 
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
+                pygame.quit()
                 return
 
         ms = game_clk.tick(60)
-        dt = ms/ 1000
+        dt = compute_dt(ms)
         updatable.update(dt)
         # player1.update(dt)
 

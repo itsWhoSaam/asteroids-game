@@ -3,7 +3,7 @@ import random
 from logger import log_event
 
 from circleshape import CircleShape
-from constants import LINE_WIDTH, ASTEROID_MIN_RADIUS
+from constants import ASTEROID_MAX_RADIUS, ASTEROID_MIN_RADIUS, LINE_WIDTH
 
 class Asteroid(CircleShape):
     def __init__(self, x, y, radius):
@@ -20,8 +20,12 @@ class Asteroid(CircleShape):
         )
     def update(self, dt):
         self.position += self.velocity * dt
+        if self.is_off_screen(ASTEROID_MAX_RADIUS):
+            self.kill()
 
     def split(self):
+        if not self.alive():
+            return
         self.kill()
         if self.radius <= ASTEROID_MIN_RADIUS:
             return

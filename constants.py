@@ -14,3 +14,7 @@ SHOT_RADIUS = 5
 PLAYER_SHOOT_SPEED = 500
 
 PLAYER_SHOOT_COOLDOWN_SECONDS = 0.3
+
+# Upper bound on a single frame's delta: absorbs stalls (alt-tab, window
+# drag) so entities never move far enough to tunnel through a collision.
+MAX_DT = 0.1
