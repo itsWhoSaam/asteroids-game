@@ -39,6 +39,7 @@ The game loops at 60 FPS until the window QUIT event (or Q at the game-over scre
   - `uv run python .obvious/evidence/proof_v4.py` — visual V4 evidence: burst frame + lifecycle strip PNGs to `/tmp/obv-evidence/`, with word-tier, 4-text cap, fx-over-entities z-order, cache-flatness, and composite-budget self-checks asserted.
   - `uv run python .obvious/evidence/proof_v5.py` — visual V5 evidence: comic-HUD hero frame, game-over caption panels, banner fade strip, and audio-tag corner PNGs to `/tmp/obv-evidence/`, with panel-family pixel, MUTED-slot, fade-dimming, glyph-cache, and composite-budget self-checks asserted.
   - `uv run python .obvious/evidence/proof_milestone.py` — milestone-rewards evidence: WAVE 4 plain flash (no grant) vs the MILESTONE WAVE 5 - SHIELD +500 CR banner with the shield ring, plus the ring persisting after the flash fades, to `/tmp/obv-evidence/`, with banner text, stocked charge, and ledger bonus asserted.
+  - `uv run python .obvious/evidence/proof_low_lives.py` — low-lives evidence: healthy 2-lives frame, 1-life frame at rest, and pulse-peak + vignette frame PNGs to `/tmp/obv-evidence/`, with corner-blend, pulse-ink, game-over-clears, and restart-rearms self-checks asserted.
   - `uv run python -m tests._balance_sim` — the ten-minute balance simulation of the main loop (income vs field density per minute, purchase curve, nuke scenario); `tests/test_balance.py` pins the fast gates.
 
 ## Codebase Map
@@ -60,7 +61,7 @@ Flat, single-app repo — all source at root (depth ≤ 2, no sub-apps):
 | `particles.py` | `Particle` debris + `Shake` — pure `burst_count` sizing, `burst()` spawner wired at the sweep's destruction site and in `Game.player_hit`; shake decays exponentially and offsets the draw origin only (engagement F5) |
 | `shot.py` | `Shot` — player bullets |
 | `sound.py` | Procedural SFX — stdlib `array`/`math` envelopes in `pygame.mixer.Sound`, built at startup; `play()`/`play_explosion()` degrade to a silent no-op on any mixer failure; mute state set via `set_muted` (engagement F6) |
-| `hud.py` | `Score` — run score + persistent high score (`game_save.json`), `points_for()` size table, `draw_hud()` overlay (yellow halftone panel + ink border, V5), `draw_game_over()` caption panels, `WaveBanner` flash — tilted cached glyphs, quantized per-frame alpha fade, `wave_banner_text()` milestone-announcement variant (engagement F3, visual V5, Tier 1 milestones) |
+| `hud.py` | `Score` — run score + persistent high score (`game_save.json`), `points_for()` size table, `draw_hud()` overlay (yellow halftone panel + ink border, V5), `draw_game_over()` caption panels, `WaveBanner` flash — tilted cached glyphs, quantized per-frame alpha fade, `wave_banner_text()` milestone-announcement variant (engagement F3, visual V5, Tier 1 milestones), `LowLivesWarning` pulse + edge vignette (UX wave) |
 | `logger.py` | `log_state()` / `log_event()` — JSONL state & event logging to repo root |
 | `game_events.jsonl` | Committed event log from a prior run (runtime artifact) |
 | `README.md` | Controls, idle loop, persistence, and run/test docs |

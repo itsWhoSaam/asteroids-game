@@ -19,7 +19,9 @@ SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy uv run main.py
 ```
 
 The loop runs at 60 FPS. Quit with the window close button, or Q at the
-game-over screen.
+game-over screen. Down to your last life, the HUD lives line pulses and
+a red vignette rims the screen edges until the run ends — the cue that
+the next hit is fatal.
 
 ## Controls
 

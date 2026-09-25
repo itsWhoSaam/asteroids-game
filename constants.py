@@ -367,3 +367,19 @@ MILESTONE_CREDIT_BONUS = 500.0
 HELP_FONT_SIZE = 24               # dense list font, between HUD and game-over
 HELP_LINE_STEP = 30               # px between help rows
 HELP_TITLE_STEP = 56              # px between the title and the first row
+
+# --- Low-lives warning (UX wave) ---------------------------------------------
+# At exactly LOW_LIVES_THRESHOLD lives the HUD lives line pulses in size and a
+# stepped vignette darkens the screen edges until the run leaves the gate —
+# respawn, game over, or restart. Both effects keep the headless contract: the
+# pulse re-renders the line at oscillating sizes (the size-fade precedent),
+# and the vignette blits uniform surface-alpha strips (the pause-dim
+# precedent) — never per-pixel alpha.
+LOW_LIVES_THRESHOLD = 1              # the gate: exactly this many lives left
+LOW_LIVES_PULSE_SECONDS = 0.9        # s per full size oscillation
+LOW_LIVES_PULSE_AMPLITUDE = 1.2      # peak size factor over the resting line
+LOW_LIVES_VIGNETTE_COLOR = PALETTE["fringe_r"]  # danger red, the fringe family
+LOW_LIVES_VIGNETTE_BANDS = 3         # stepped frames from the edge inward
+LOW_LIVES_VIGNETTE_BAND_WIDTH = 14   # px per band step inward
+LOW_LIVES_VIGNETTE_MAX_ALPHA = 80    # outermost band strength, 0–255
+LOW_LIVES_VIGNETTE_ALPHA_STEP = 28   # fade per band inward
