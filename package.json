@@ -7,12 +7,19 @@
   "scripts": {
     "typecheck": "tsc --noEmit -p shared && tsc --noEmit -p server && tsc --noEmit -p web",
     "test": "vitest run",
-    "build": "esbuild web/index.ts --bundle --format=iife --outfile=dist/index.js && cp web/index.html dist/index.html"
+    "build": "npm run build:web && npm run build:server",
+    "build:web": "esbuild web/index.ts --bundle --format=iife --outfile=dist/index.js && cp web/index.html dist/index.html",
+    "build:server": "esbuild server/index.ts --bundle --platform=node --format=esm --packages=external --outfile=dist-server/index.js",
+    "start": "node dist-server/index.js"
   },
   "devDependencies": {
     "@types/node": "^26.6.2",
     "esbuild": "^0.28.2",
     "typescript": "^7.0.2",
     "vitest": "^4.1.11"
+  },
+  "dependencies": {
+    "@types/ws": "^8.18.1",
+    "ws": "^8.21.3"
   }
 }
