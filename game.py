@@ -12,6 +12,7 @@ from constants import (
     PLAYER_DEATH_BURST_INTENSITY,
     PLAYER_START_LIVES,
     SHAKE_PLAYER_DEATH,
+    VOLUME_STEP,
 )
 from hud import SAVE_PATH, Score
 from logger import log_event
@@ -62,6 +63,24 @@ class Game:
         Playback-only: the sim never stops for audio, so this is not run
         state — main() relays the return value to the sound module."""
         return self._score.set_muted(not self.muted)
+
+    @property
+    def volume(self):
+        """The persisted master level, 0–100 (UX wave)."""
+        return self._score.volume
+
+    def step_volume(self, direction):
+        """Step the master level by one VOLUME_STEP toward `direction`
+        (+1 / -1), clamped to 0–100 and persisted through the save loader;
+        returns the new level for main() to relay to the sound module.
+
+        Playback-only like mute — not run state, so restart hooks don't
+        touch it. Mute never routes through here: stepping keeps the level
+        exactly as it was left.
+        """
+        return self._score.set_volume(
+            sound.clamp_volume(self.volume + direction * VOLUME_STEP)
+        )
 
     @property
     def new_high(self):
