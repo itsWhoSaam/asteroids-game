@@ -9,7 +9,9 @@ the repo-root game_events.jsonl:
 - chaos_mystery_drop.png  a violet ? pickup drifting where a medium rock
                           died (both rolls patched deterministic)
 - chaos_curse_reveal.png  the frame after the ship collects that ? and the
-                          roll lands on the REVERSE curse
+                          roll lands on the REVERSE curse — annotated, because
+                          the curse is behavioral (controls answer backwards):
+                          an unannotated frame would look like empty space
 - chaos_bomb_clear.png    the frame after a ? resolves to the BOMB: the
                           whole field gone, the burst still on screen
 
@@ -119,6 +121,15 @@ finally:
 assert player.cursed_reverse, "a 0.1 mystery open must reveal the REVERSE curse"
 assert len(powerups) == 0, "the ? is consumed by its own reveal"
 render_frame()
+# The REVERSE reveal is behavioral — the controls answer backwards, no flash
+# effect exists — so annotate the frame: bare black would prove nothing.
+note = pygame.font.Font(None, 30).render(
+    "REVERSE revealed — controls answer backwards (cursed_reverse)",
+    True,
+    PALETTE["powerup_mystery"],
+    (20, 12, 28),
+)
+screen.blit(note, note.get_rect(midbottom=(SCREEN_WIDTH / 2, SCREEN_HEIGHT - 30)))
 pygame.image.save(screen, f"{OUT}/chaos_curse_reveal.png")
 
 # --- Scenario C: another ? resolves to the BOMB — the field clears -----------
