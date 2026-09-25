@@ -383,3 +383,13 @@ LOW_LIVES_VIGNETTE_BANDS = 3         # stepped frames from the edge inward
 LOW_LIVES_VIGNETTE_BAND_WIDTH = 14   # px per band step inward
 LOW_LIVES_VIGNETTE_MAX_ALPHA = 80    # outermost band strength, 0–255
 LOW_LIVES_VIGNETTE_ALPHA_STEP = 28   # fade per band inward
+
+# --- Distinct score popups (Tier 2) ------------------------------------------
+# Points and credits both float over a wreck on the FloatingText dt-timer
+# template, and main.popup_style resolves each kind's look: a shot kill's
+# points award announces '+N pts' in the palette's warm white, while credits
+# keep their yellow '+N'. The points popup spawns a head above the credit
+# float paid on the same frame by the destruction diff, so the pair stacks
+# instead of overlapping. Display only — neither kind touches economy math.
+SCORE_COLOR = PALETTE["hud_ink"]  # warm white — reads apart from yellow credits
+SCORE_POPUP_OFFSET_Y = 24.0       # px head start above the credit float's line
