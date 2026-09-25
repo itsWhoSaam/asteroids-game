@@ -61,6 +61,14 @@ class Blob(pygame.sprite.Sprite):
         pygame.draw.circle(surface, self.color, self.position, self.radius)
 
 
+class FakeCombo:
+    """The chainless state draw_hud sees: no slot row renders while idle."""
+
+    chain = 0
+    window = 0.0
+    active = False
+
+
 class FakeGame:
     """The run-state slice render_world reads for the HUD."""
 
@@ -68,6 +76,7 @@ class FakeGame:
     lives = 3
     wave = 2
     muted = False
+    combo = FakeCombo()
 
 
 class CountingFont:

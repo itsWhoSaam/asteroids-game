@@ -20,6 +20,18 @@ from comicfx import (
 from constants import (
     ASTEROID_MIN_RADIUS,
     BANNER_ALPHA_STEPS,
+    BOSS_BAR_FILL_COLOR,
+    BOSS_BAR_HEIGHT,
+    BOSS_BAR_TRACK_COLOR,
+    BOSS_BAR_WIDTH,
+    BOSS_BAR_Y,
+    COMBO_BREAK_MIN_CHAIN,
+    COMBO_CAP,
+    COMBO_COLOR,
+    COMBO_MILESTONES,
+    COMBO_STEP,
+    COMBO_WINDOW_SECONDS,
+    DASH_COOLING_COLOR,
     DIFFICULTY_DEFAULT,
     DIFFICULTY_KEY_LABELS,
     DIFFICULTY_MODES,
@@ -62,6 +74,7 @@ from constants import (
     WAVE_BANNER_TILT_DEGREES,
 )
 from logger import log_event
+import sound
 from shop import UPGRADES
 
 SAVE_PATH = "game_save.json"
@@ -256,6 +269,70 @@ class Score:
         self._beaten = False
 
 
+def combo_multiplier(chain, step=COMBO_STEP, cap=COMBO_CAP):
+    """Pure: points multiplier for a chain of `chain` shot kills.
+
+    The first kill pays face value; each further link inside the window adds
+    `step`, capped. 0.25/step means x2 at chain 5 — the milestone tier."""
+    if chain <= 1:
+        return 1.0
+    return min(1.0 + step * (chain - 1), cap)
+
+
+class ComboMeter:
+    """The shot-kill chain (insanity core): score-only, never credits.
+
+    register_kill extends the chain and re-arms the window; tick drains the
+    window on the dt the simulation runs on (the house dt-timer pattern, so
+    tests step it and hit-stop holds it). The run's top chain and best
+    multiplier survive breaks — they are the game-over stat lines.
+    """
+
+    def __init__(self):
+        self.chain = 0
+        self.window = 0.0
+        self.top = 0  # best chain this run — the game-over stat
+        self.best_multiplier = 1.0
+        self._milestone_hit = set()
+
+    @property
+    def active(self):
+        return self.chain > 0
+
+    def register_kill(self):
+        """A rock died to player-or-drone fire: extend the chain and return
+        it. Milestones log once per run — a re-climbed tier stays silent."""
+        self.chain += 1
+        self.window = COMBO_WINDOW_SECONDS
+        self.top = max(self.top, self.chain)
+        self.best_multiplier = max(self.best_multiplier, combo_multiplier(self.chain))
+        if self.chain in COMBO_MILESTONES and self.chain not in self._milestone_hit:
+            self._milestone_hit.add(self.chain)
+            log_event("combo_milestone", chain=self.chain)
+        return self.chain
+
+    def tick(self, dt):
+        """Drain the window; expiry breaks the chain (the house dt-timer)."""
+        if self.window <= 0:
+            return
+        self.window -= dt
+        if self.window <= 0:
+            self.break_chain()
+
+    def break_chain(self):
+        """Drop the chain. Only a chain worth naming (>= the min) logs and
+        sighs — a two-kill stumble is noise, not an event."""
+        if self.chain >= COMBO_BREAK_MIN_CHAIN:
+            log_event("combo_break", chain=self.chain)
+            sound.play(sound.SFX_COMBO_BREAK)
+        self.chain = 0
+        self.window = 0.0
+
+    def reset(self):
+        """Full-restart hook: every counter, including the run stats."""
+        self.__init__()
+
+
 _hud_font_cache = None
 
 
@@ -419,7 +496,7 @@ class LowLivesWarning:
 
 
 def draw_hud(screen, score, lives=0, wave=0, muted=False, volume=None,
-             lives_pulse=None, magnet=None):
+             lives_pulse=None, combo=None, dash_timer=None, magnet=None):
     """Draw the HUD top-left on a yellow halftone panel (visual V5). Score
     always shows; the lives and wave slots stay hidden while zero — F2 and
     F3 feed them.
@@ -434,6 +511,11 @@ def draw_hud(screen, score, lives=0, wave=0, muted=False, volume=None,
     (1.0–AMPLITUDE) while exactly one life remains, None at rest — that
     one line re-renders at the scaled size while the warning is live.
 
+    Insanity slots (combo, dash), passed only while a run is live: the
+    combo readout sits directly under the wave slot, amber and dimming as
+    its window drains; the dash slot below shows ready or the cooling
+    seconds.
+
     magnet (Tier 3): seconds left on the MAGNET drop's clock, rendered as
     a MAGNET Ns tag on the row below the audio tags — hidden while zero
     like the lives/wave slots, and in the effect's palette green so the
@@ -447,8 +529,36 @@ def draw_hud(screen, score, lives=0, wave=0, muted=False, volume=None,
     if wave:
         lines.append((f"Wave: {wave}", False))
 
+    # The insanity slots are extra panel rows under the basics (combo
+    # under the wave slot). The combo's amber dims toward the window's
+    # edge in the COLOR itself — the shared cache is keyed by (string,
+    # color, size), so mutating a cached surface's alpha would bleed into
+    # every other blit of the same string.
+    # The insanity slots pin under the basics (combo under the wave slot,
+    # dash below it): the combo slot empties when a chain breaks, but the
+    # dash slot below must not slide up into its place — pinned rows, so a
+    # dying chain never shifts the dash readout under the player's eye.
+    combo_row = None
+    if combo is not None and combo.active:
+        remaining = max(combo.window, 0.0)
+        combo_row = (
+            f"COMBO x{combo.chain} ({remaining:.1f})",
+            tuple(
+                int(c * remaining / COMBO_WINDOW_SECONDS) for c in COMBO_COLOR
+            ),
+        )
+    dash_row = None
+    if dash_timer is not None:
+        if dash_timer > 0:
+            dash_row = (f"DASH {dash_timer:.1f}", DASH_COOLING_COLOR)
+        else:
+            dash_row = ("DASH READY", PALETTE["hud_ink"])
+
+    # While a run is live (dash passed) the panel reserves both insanity
+    # rows even when the combo slot is empty — no mid-play panel resizing.
+    slot_count = 2 if dash_timer is not None else (1 if combo_row else 0)
     screen.blit(
-        _hud_panel(len(lines)),
+        _hud_panel(len(lines) + slot_count),
         (HUD_MARGIN - PANEL_PAD_X, HUD_MARGIN - PANEL_PAD_Y),
     )
     for row, (text, pulsing) in enumerate(lines):
@@ -460,7 +570,20 @@ def draw_hud(screen, score, lives=0, wave=0, muted=False, volume=None,
         else:
             surface = cached_text(text, PALETTE["hud_ink"], HUD_FONT_SIZE)
         screen.blit(surface, (HUD_MARGIN, HUD_MARGIN + row * HUD_LINE_STEP))
-
+    # Slot rows render at their pinned panel row indexes, same ink column.
+    if combo_row is not None:
+        text, color = combo_row
+        surface = cached_text(text, color, HUD_FONT_SIZE)
+        screen.blit(
+            surface, (HUD_MARGIN, HUD_MARGIN + len(lines) * HUD_LINE_STEP)
+        )
+    if dash_row is not None:
+        text, color = dash_row
+        surface = cached_text(text, color, HUD_FONT_SIZE)
+        screen.blit(
+            surface,
+            (HUD_MARGIN, HUD_MARGIN + (len(lines) + 1) * HUD_LINE_STEP),
+        )
     muted_rect = None
     if muted:
         surface = cached_text("MUTED", PALETTE["hud_ink"], HUD_FONT_SIZE)
@@ -486,19 +609,38 @@ def draw_hud(screen, score, lives=0, wave=0, muted=False, volume=None,
         ))
 
 
+def draw_boss_bar(screen, boss):
+    """Top-center boss HP bar (insanity threats), shown during boss waves:
+    a dim track across the top with the hostile-red fill shrinking as the
+    pool drains. The fraction is the boss's own hp/max_hp — one source of
+    truth, the fight reads its own state."""
+    fraction = max(boss.hp, 0) / boss.max_hp
+    x = (SCREEN_WIDTH - BOSS_BAR_WIDTH) / 2
+    track = pygame.Rect(x, BOSS_BAR_Y, BOSS_BAR_WIDTH, BOSS_BAR_HEIGHT)
+    fill = pygame.Rect(x, BOSS_BAR_Y, BOSS_BAR_WIDTH * fraction, BOSS_BAR_HEIGHT)
+    pygame.draw.rect(screen, BOSS_BAR_TRACK_COLOR, track, border_radius=4)
+    pygame.draw.rect(screen, BOSS_BAR_FILL_COLOR, fill, border_radius=4)
+
+
 def game_over_font():
     """Larger font for the game-over banner and the wave banner — the
     shared bold comicfx font (visual V5)."""
     return shared_font(GAME_OVER_FONT_SIZE)
 
 
-def game_over_lines(score, new_high=False, mode=None):
-    """The game-over overlay's lines, pure (Tier 2): the R/Q prompt grows the
-    1/2/3 difficulty select when a mode is known — never a fourth line, the
-    run summary block seats against the three-line worst case."""
+def game_over_lines(score, new_high=False, mode=None, top_chain=0,
+                    best_multiplier=1.0):
+    """The game-over overlay's lines, pure (Tier 2): the R/Q prompt grows
+    the 1/2/3 difficulty select when a mode is known, and the insanity
+    run's top chain and best multiplier join when the run chained at all —
+    the run summary block still seats against the worst case."""
     lines = [f"Game over — score {score}"]
     if new_high:
         lines.append("New high score!")
+    if top_chain > 0:
+        lines.append(
+            f"Top chain {top_chain} — best multiplier x{best_multiplier:g}"
+        )
     if mode is None:
         lines.append("press R to restart, Q to quit")
     else:
@@ -506,9 +648,11 @@ def game_over_lines(score, new_high=False, mode=None):
     return lines
 
 
-def draw_game_over(screen, score, new_high=False, mode=None):
+def draw_game_over(screen, score, new_high=False, mode=None, top_chain=0,
+                   best_multiplier=1.0):
     """Centered game-over overlay (engagement F2): final score, the
-    new-high-score state when the run set a record, and the R/Q prompt —
+    new-high-score state when the run set a record, the insanity run's top
+    chain and best multiplier when it chained at all, and the R/Q prompt —
     each line on its own yellow halftone caption panel (visual V5).
 
     Tier 2: when the run's mode is known the prompt also offers the 1/2/3
@@ -516,7 +660,8 @@ def draw_game_over(screen, score, new_high=False, mode=None):
     exact pre-difficulty prompt). Panel widths bucket to 32px so a run's
     score line reuses panels across restarts instead of growing the cache
     per point scored; text renders through the shared cache."""
-    lines = game_over_lines(score, new_high, mode)
+    lines = game_over_lines(score, new_high, mode, top_chain,
+                            best_multiplier)
 
     font = game_over_font()
     height = len(lines) * GAME_OVER_LINE_STEP

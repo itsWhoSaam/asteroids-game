@@ -1,7 +1,7 @@
 import random
 
 import pygame
-from asteroid import Asteroid
+from asteroid import Asteroid, boss_tier
 from constants import (
     ASTEROID_KINDS,
     ASTEROID_MAX_RADIUS,
@@ -9,6 +9,7 @@ from constants import (
     ASTEROID_SPAWN_RATE_SECONDS,
     ASTEROID_SPEED_MAX,
     ASTEROID_SPEED_MIN,
+    BOSS_WAVE_INTERVAL,
     DIFFICULTY_DEFAULT,
     DIFFICULTY_TABLE,
     SCREEN_HEIGHT,
@@ -27,6 +28,11 @@ def wave_params(wave, mode=DIFFICULTY_DEFAULT):
     speed band climbs from its wave-1 base. Kept as a plain dict — the
     spec's key interface for this feature.
 
+    Boss waves (insanity threats): every BOSS_WAVE_INTERVAL-th wave returns
+    the boss dict instead — the boss IS the wave's population, so the field
+    spawns nothing. The zero cadence/speeds are inert filler keeping the
+    dict shape uniform for callers that read all keys.
+
     Tier 2 difficulty modes: the mode's multipliers scale the interval and
     the whole speed band (optional kwarg — the handle_collisions precedent —
     so the pinned single-argument calls keep their exact Normal numbers).
@@ -35,6 +41,14 @@ def wave_params(wave, mode=DIFFICULTY_DEFAULT):
     which the monotonicity tests allow. Speeds round to ints — the field's
     random.randint needs them and Normal's 1.0 keeps the exact legacy band.
     """
+    if wave % BOSS_WAVE_INTERVAL == 0:
+        return {
+            "boss": True,
+            "tier": boss_tier(wave),
+            "spawn_interval": 0.0,
+            "speed_min": 0,
+            "speed_max": 0,
+        }
     cfg = DIFFICULTY_TABLE[mode]
     return {
         "spawn_interval": max(
@@ -102,6 +116,10 @@ class AsteroidField(pygame.sprite.Sprite):
         # Cadence and speed band come from the wave the game is on (F3),
         # scaled by the run's difficulty mode (Tier 2).
         params = wave_params(self.game.wave, self.game.mode)
+        if params.get("boss"):
+            # Boss wave (insanity threats): the field spawns nothing — the
+            # boss is the wave's population, spawned by main's scheduler.
+            return
         self.spawn_timer += dt
         if self.spawn_timer > params["spawn_interval"]:
             self.spawn_timer = 0

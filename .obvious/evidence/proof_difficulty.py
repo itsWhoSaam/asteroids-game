@@ -45,6 +45,10 @@ from shot import Shot
 OUT = "/tmp/obv-evidence"
 os.makedirs(OUT, exist_ok=True)
 SAVE = f"{OUT}/difficulty_save.json"
+if os.path.exists(SAVE):
+    # A prior run's save would steer the boot menu (it ends with HARD
+    # saved) — proofs are deterministic, so start from a clean slate.
+    os.remove(SAVE)
 
 pygame.init()
 screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))

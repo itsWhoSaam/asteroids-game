@@ -90,6 +90,7 @@ PALETTE = {
     "powerup_shield": (62, 230, 240),  # effect identity colors (F4)
     "powerup_rapid": (255, 154, 62),
     "powerup_triple": (255, 78, 205),
+    "powerup_mystery": (170, 120, 255),  # violet — the ? gamble (insanity chaos)
     "spark": (255, 210, 63),       # warm comic debris (F5)
     "hud_ink": (255, 247, 230),    # warm white HUD text
     "hud_panel": (255, 210, 63),   # yellow panels (HUD restyle, V5)
@@ -233,6 +234,13 @@ POWERUP_DURATION_S = {
     "shield": 8.0,
     "rapid": 8.0,
     "triple": 8.0,
+    # Insanity chaos: the new timed effects join the same table — the
+    # runtime source of every duration. BOMB and DISARM are instant (they
+    # fire and strip in activate_powerup, never arming a clock) and MYSTERY
+    # resolves on collect, so none of the three has a duration entry.
+    "pierce": 8.0,
+    "homing": 8.0,
+    "reverse": 6.0,  # = CURSE_REVERSE_S below — the readable alias
 }
 POWERUP_RAPID_COOLDOWN_MULT = 0.4  # RAPID multiplies the shoot cooldown
 POWERUP_TRIPLE_SPREAD = 20.0       # degrees between the three TRIPLE shots
@@ -300,6 +308,180 @@ SFX_GAME_OVER_DURATION = 0.8
 SFX_GAME_OVER_SWEEP = (440.0, 90.0)
 SFX_GAME_OVER_VOLUME = 0.6
 
+# --- Insanity core: combo, hit-stop, dash ---------------------------------
+# All numbers here are playtest starting values from the insanity spec; none
+# is structural. Every tunable lives in this one block — tuning happens
+# here, never in gameplay code.
+
+# Combo multiplier (score feature, not a currency feature): every rock
+# destroyed by player-or-drone fire within the window extends the chain,
+# and the kill's points pay through combo_multiplier(chain). Credits mint
+# exactly as before — the multiplier never touches the ledger.
+COMBO_WINDOW_SECONDS = 3.0        # chain lifetime after each kill
+COMBO_STEP = 0.25                 # multiplier added per chain link (x2 at chain 5)
+COMBO_CAP = 5.0                   # multiplier ceiling
+COMBO_MILESTONES = (5, 10, 20, 50)  # chains that log + chirp once per run
+COMBO_BREAK_MIN_CHAIN = 3         # breaking a shorter chain is silent, unlogged
+COMBO_COLOR = (255, 191, 0)       # amber readout under the wave slot
+
+# Hit-stop: every destruction holds the whole simulation for a beat. The
+# freeze itself and the shake decay tick on real dt so the pause always ends.
+HIT_STOP_BASE_S = 0.05            # one kill in a frame
+HIT_STOP_MULTI_S = 0.09           # several dying inside one frame
+# The multi duration expressed in freeze(scale=...) units, so one formula
+# prices every request and the two named durations stay the source of truth.
+HIT_STOP_MULTI_SCALE = HIT_STOP_MULTI_S / HIT_STOP_BASE_S
+
+# Dash: a SHIFT impulse along the nose. I-frames ride the respawn grace via
+# max() — never shorter — and dashing breaks the combo: the panic button
+# has a price. The impulse bleeds off over DASH_DECAY_S, so the ship glides
+# then handles normally.
+DASH_IMPULSE = 420.0              # px/s added to velocity along the nose
+DASH_IFRAME_S = 0.25              # invulnerability granted
+DASH_COOLDOWN_S = 2.0             # between dashes
+DASH_DECAY_S = 0.4                # the impulse bleeds off over this long
+DASH_DECAY = 0.001                # impulse fraction retained after one second
+DASH_COOLING_COLOR = (110, 110, 110)  # the cooling slot, dim against HUD_COLOR
+
+# HUD rows the insanity slots claim: the combo readout sits directly under
+# the wave slot, the dash slot below it, and the credits line (idle core)
+# drops beneath both so nothing overlaps.
+HUD_CREDITS_ROW = 5
+
+# Dash: a crisp whoosh — bright noise over a fast falling chirp, swelling
+# and gone in under a fifth of a second. Recipe follows the F6 builders.
+SFX_DASH = "dash"
+SFX_DASH_DURATION = 0.18
+SFX_DASH_SWEEP = (1400.0, 180.0)
+SFX_DASH_BRIGHTNESS = 0.7
+SFX_DASH_VOLUME = 0.45
+
+# Combo break: a descending sigh — the chain dying audibly.
+SFX_COMBO_BREAK = "combo_break"
+SFX_COMBO_BREAK_DURATION = 0.5
+SFX_COMBO_BREAK_SWEEP = (520.0, 140.0)
+SFX_COMBO_BREAK_VOLUME = 0.5
+
+# --- Insanity threats: bosses, saucers, black holes ------------------------
+# All numbers here are playtest starting values from the insanity spec; none
+# is structural. Every tunable lives in this one block — tuning happens
+# here, never in gameplay code.
+
+# Boss waves: every BOSS_WAVE_INTERVAL-th wave fields one multi-hit boss
+# instead of the regular field. Tier = wave // interval, capped by the
+# radius table's largest tier. Bosses pay score through register_kill only
+# (BOSS_POINTS × the combo multiplier) — never credits, never pickups.
+BOSS_WAVE_INTERVAL = 5
+BOSS_RADIUS_TIERS = {1: 4, 2: 5, 3: 6}  # × ASTEROID_MIN_RADIUS
+BOSS_HP_PER_TIER = 6
+BOSS_POINTS = 300
+# Minion checkpoint fractions of the boss's max HP: crossing each threshold
+# (70/40/15%) spawns two mediums at the boss — the fight gets harder as it
+# gets safer. A fixed ladder, so every tier fields three waves.
+MINION_CHECKPOINT_FRACTIONS = (0.70, 0.40, 0.15)
+MINION_RADIUS_MULTIPLIER = 2  # medium asteroids, per checkpoint
+SHAKE_BOSS_DEATH = 16.0       # px — the boss's death rocks the screen hard
+
+# The boss health bar (hud.draw_boss_bar): top-center during boss waves.
+BOSS_BAR_WIDTH = 480
+BOSS_BAR_HEIGHT = 10
+BOSS_BAR_Y = HUD_MARGIN + 6
+BOSS_BAR_FILL_COLOR = PALETTE["fringe_r"]  # hostile red fill
+BOSS_BAR_TRACK_COLOR = (40, 40, 60)        # dim track against the paper
+
+# Enemy saucers: from wave 2 a jittered interval enters one from a random
+# edge; kinds alternate. Big saucers cross slower and fire 3-way spreads;
+# small saucers cross fast and fire aimed single shots — worth far more.
+SAUCER_FIRST_WAVE = 2
+SAUCER_SPAWN_INTERVAL_S = 20.0
+SAUCER_SPAWN_JITTER_S = 8.0
+SAUCER_RADIUS = {"big": 24, "small": 16}
+SAUCER_KINDS = {
+    "big":   {"fire_interval": 2.0, "spread": 3, "shot_speed": 350.0,
+              "hp": 2, "points": 200, "speed": 80.0},
+    "small": {"fire_interval": 1.2, "spread": 1, "shot_speed": 450.0,
+              "hp": 1, "points": 1000, "speed": 140.0},
+}
+SAUCER_KIND_ORDER = ("big", "small")  # the alternation order
+SAUCER_BOB_AMPLITUDE = 60    # px of sine bob under the horizontal cross
+SAUCER_BOB_FREQUENCY = 0.5   # Hz — one full bob every two seconds
+SAUCER_SPREAD_DEGREES = 20.0 # between the big saucer's three shots
+SAUCER_EDGE_MARGIN = 40      # cull margin beyond is_off_screen's radius
+SAUCER_SHAKE_DEATH = 8.0     # px — a saucer's death kicks the screen
+
+# Black holes: from wave 3 a timer drops a gravity well that bends every
+# trajectory. It kills nothing directly — the danger is eaten agency and
+# drifted rocks. It never spawns during a boss wave.
+BLACK_HOLE_FIRST_WAVE = 3
+BLACK_HOLE_FIRST_DELAY_S = 15.0
+BLACK_HOLE_REPEAT_DELAY_S = 22.0
+BLACK_HOLE_JITTER_S = 8.0
+BLACK_HOLE_LIFETIME_S = 12.0
+BLACK_HOLE_WARNING_S = 2.0   # the final blink window
+BLACK_HOLE_RADIUS = 26
+# accel_at: inverse-falloff pull toward the hole, capped at the core. The
+# min distance keeps the math finite inside the well itself.
+BLACK_HOLE_STRENGTH = 4e6
+BLACK_HOLE_FALLOFF = 1.5
+BLACK_HOLE_MAX_ACCEL = 2000.0
+BLACK_HOLE_MIN_DIST = 40.0
+BLACK_HOLE_PLAYER_FACTOR = 0.5  # the ship fights the pull at half strength
+BLACK_HOLE_SPAWN_MARGIN = 100   # px kept clear of every screen edge
+
+# Saucer fire: a two-tone warble — two detuned tones beating against each
+# other while the shot leaves.
+SFX_SAUCER = "saucer"
+SFX_SAUCER_DURATION = 0.25
+SFX_SAUCER_TONES = (620.0, 780.0)
+SFX_SAUCER_VOLUME = 0.4
+
+# Boss spawn: a low double-thump — the field's weight arriving.
+SFX_BOSS = "boss"
+SFX_BOSS_DURATION = 0.9
+SFX_BOSS_THUMP_HZ = 90.0
+SFX_BOSS_VOLUME = 0.7
+
+# Black hole: a low rumble — noise over a sinking tone, swelling slowly.
+SFX_BLACKHOLE = "blackhole"
+SFX_BLACKHOLE_DURATION = 1.1
+SFX_BLACKHOLE_SWEEP = (110.0, 45.0)
+SFX_BLACKHOLE_BRIGHTNESS = 0.35
+SFX_BLACKHOLE_VOLUME = 0.5
+
+# --- Insanity chaos: mystery & curse pickups --------------------------------
+# All numbers here are playtest starting values from the insanity spec; none
+# is structural. Every tunable lives in this one block — tuning happens
+# here, never in gameplay code.
+
+# The mystery gamble: 40% of paid drops are the '?' wildcard (known buffs
+# get rarer), and a ? open is a 25% sting — a curse (equal odds) instead of
+# a buff. Curses never drop directly: the reveal is the gamble.
+MYSTERY_DROP_CHANCE = 0.40
+MYSTERY_CURSE_CHANCE = 0.25
+# The controls answer backwards while the reverse curse runs. The duration
+# table above is the runtime source (activate_powerup reads it like every
+# other effect); this is the readable alias the curse logic and tests use.
+CURSE_REVERSE_S = POWERUP_DURATION_S["reverse"]
+
+# Homing shots steer toward the nearest asteroid at up to this heading
+# change per second — speed preserved, so the buff bends bullets, not
+# accelerates them.
+HOMING_TURN_RATE_S = 360.0
+
+# The bomb pickup's field clear rocks the screen: harder than one large
+# rock, softer than losing a life (SHAKE_PLAYER_DEATH).
+SHAKE_BOMB = 12.0
+
+# The ? pickup's identity hue: violet, keyed through the palette (visual V1)
+# like every other color site.
+MYSTERY_COLOR = PALETTE["powerup_mystery"]
+
+# Curse reveal: a dissonant sting — two tones a rubbed half-step apart,
+# sinking together. The sound that makes the next ? hesitate.
+SFX_CURSE = "curse"
+SFX_CURSE_DURATION = 0.45
+SFX_CURSE_TONES = (392.0, 415.3)  # G4 against a quarter-flat G#4
+SFX_CURSE_VOLUME = 0.55
 # --- Master volume (UX wave) -------------------------------------------------
 # '[' / ']' step the master volume between 0 and 100 in 10% steps; every SFX
 # scales by the level at playback (the per-cue volumes above stay baked into

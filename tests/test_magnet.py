@@ -238,15 +238,15 @@ def test_magnet_is_a_first_class_drop_with_its_duration():
 
 
 def test_shot_kill_spawns_a_magnet_pickup(tmp_path, monkeypatch):
-    """The sweep's rolls: 0.0 wins the drop, 0.8 lands in MAGNET's band —
-    the appended fourth of the uniform pool."""
+    """The sweep's rolls: 0.0 wins the drop, 0.95 lands in MAGNET's band —
+    the appended seventh of the uniform pool."""
     pygame.init()
     _, _, asteroids, shots, powerups, _floaters = make_groups()
     player = Player(100, 660)  # far from the wreck: no player hit
     game = make_game(tmp_path, player, asteroids, shots, powerups)
     Asteroid(640, 360, ASTEROID_MIN_RADIUS * 2)  # medium: eligible
     Shot(640, 360)
-    rolls = iter([0.0, 0.8])  # the drop roll, then the type roll
+    rolls = iter([0.0, 0.95])  # the drop roll, then the type roll
     monkeypatch.setattr(random, "random", lambda: next(rolls))
 
     handle_collisions(asteroids, shots, player, game, powerups)
@@ -281,7 +281,7 @@ def test_the_drop_system_stays_disjoint_from_the_bought_system():
     drop tables and never the bought POWERUPS dict (keys 7–0, Economy-
     priced) — and its pick_type band still resolves purely."""
     assert "magnet" not in POWERUPS
-    assert pick_type(0.8) is PowerUpType.MAGNET
+    assert pick_type(0.9) is PowerUpType.MAGNET
 
 
 # --- Economy integrity -----------------------------------------------------------

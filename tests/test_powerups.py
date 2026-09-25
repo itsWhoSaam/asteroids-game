@@ -27,7 +27,7 @@ from constants import (
 from game import Game
 from main import handle_collisions
 from player import Player
-from powerups import PowerUp, PowerUpType, drops_powerup, pick_type
+from powerups import BUFF_TYPES, PowerUp, PowerUpType, drops_powerup, pick_type
 from shot import Shot
 
 
@@ -63,16 +63,20 @@ def read_events(tmp_path):
 
 
 def test_constants_tables_cover_every_type_and_pin_the_magnitudes():
-    """Every type has a duration (the table is the idle-economy seam, so an
-    unknown type would silently grant no timer), and the magnitudes the
-    follow-on economy layer will multiply are pinned."""
+    """Timed effects have duration entries (the table is the idle-economy
+    seam, so an unknown type would silently grant no timer); instant and
+    on-collect types — the bomb, the disarm curse, the ? itself — must NOT
+    have one (a duration would be a lie the HUD would tell). The magnitudes
+    the follow-on economy layer multiplies are pinned."""
     assert POWERUP_DROP_CHANCE == pytest.approx(0.15)
     assert POWERUP_RAPID_COOLDOWN_MULT == pytest.approx(0.4)
     assert POWERUP_TRIPLE_SPREAD == pytest.approx(20.0)
     assert POWERUP_SHIELD_HITS == 1
-    for kind in PowerUpType:
-        assert kind in POWERUP_DURATION_S
+    for kind in ("shield", "rapid", "triple", "pierce", "homing"):
         assert POWERUP_DURATION_S[kind] == pytest.approx(8.0)
+    assert POWERUP_DURATION_S["reverse"] == pytest.approx(6.0)  # a curse clock
+    for kind in ("bomb", "disarm", "mystery"):
+        assert kind not in POWERUP_DURATION_S
 
 
 # --- Drop rolls (pure, seeded-RNG testable) ---------------------------------
@@ -91,15 +95,14 @@ def test_drop_chance_boundary():
 
 def test_pick_type_covers_all_types_under_a_seeded_stream():
     """Type selection is pure in the roll: a seeded random stream maps onto
-    all four types and every roll lands on a real one. MAGNET appends at
-    the pool's end, so the original three keep their roll bands."""
+    all seven buffs and every roll lands on a real one — MAGNET appends at
+    the pool's end, so the original six keep their bands; the ? wildcard
+    lives one layer up, in drop_type."""
     random.seed(1234)
     rolls = [random.random() for _ in range(300)]
-    assert {pick_type(roll) for roll in rolls} == set(PowerUpType)
+    assert {pick_type(roll) for roll in rolls} == set(BUFF_TYPES)
     assert pick_type(0.0) is PowerUpType.SHIELD
-    assert pick_type(0.749) is PowerUpType.TRIPLE  # the old bands held...
-    assert pick_type(0.75) is PowerUpType.MAGNET   # ...the fourth is appended
-    assert pick_type(0.999) is PowerUpType.MAGNET
+    assert pick_type(0.999) is PowerUpType.MAGNET  # the appended seventh band
     assert pick_type(1.0) is PowerUpType.MAGNET  # clamped, never IndexError
 
 
@@ -257,20 +260,46 @@ def test_destroyed_medium_rock_spawns_a_pickup_at_the_death_site(tmp_path, monke
     game = make_game(tmp_path, player, asteroids, shots, powerups)
     Asteroid(640, 360, ASTEROID_MIN_RADIUS * 2)  # medium: eligible
     Shot(640, 360)
-    # two rolls in the sweep: 0.0 drops the pickup, 0.3 picks the second type
-    # (RAPID) out of the four-way pool — 0.5 now lands in MAGNET's band
-    rolls = iter([0.0, 0.3])
+    # two rolls in the sweep: 0.0 drops the pickup, 0.7 picks pierce —
+    # drop_type's remap ((0.7 − 0.4) / 0.6 × 7 = 3.5, band 3) — interior
+    # on purpose: bucket edges sit at nasty floats (0.5 lands exactly on
+    # the shield/rapid smear), so boundary rolls say nothing about the pool
+    rolls = iter([0.0, 0.7])
     monkeypatch.setattr(random, "random", lambda: next(rolls))
 
     handle_collisions(asteroids, shots, player, game, powerups)
 
     assert len(powerups) == 1
     pickup = next(iter(powerups))
-    assert pickup.kind is PowerUpType.RAPID
+    assert pickup.kind is PowerUpType.PIERCE
     assert pickup.position == pygame.Vector2(640, 360)
     spawned = [e for e in read_events(tmp_path) if e["type"] == "powerup_spawned"]
     assert len(spawned) == 1
-    assert spawned[0]["powerup_type"] == "rapid"
+    assert spawned[0]["powerup_type"] == "pierce"
+
+
+def test_destroyed_rock_rolls_the_wildcard_into_a_mystery_pickup(
+    tmp_path, monkeypatch
+):
+    """40% of paid drops are the ? wildcard: the sweep's second roll runs
+    drop_type now, and a known-type range lands on MYSTERY instead — the
+    drop site logs it plainly as 'mystery'."""
+    pygame.init()
+    _, _, asteroids, shots, powerups = make_groups()
+    player = Player(100, 660)
+    game = make_game(tmp_path, player, asteroids, shots, powerups)
+    Asteroid(640, 360, ASTEROID_MIN_RADIUS * 2)
+    Shot(640, 360)
+    rolls = iter([0.0, 0.2])  # 0.0 drops; 0.2 < 0.40 → the wildcard
+    monkeypatch.setattr(random, "random", lambda: next(rolls))
+
+    handle_collisions(asteroids, shots, player, game, powerups)
+
+    assert len(powerups) == 1
+    pickup = next(iter(powerups))
+    assert pickup.kind is PowerUpType.MYSTERY
+    spawned = [e for e in read_events(tmp_path) if e["type"] == "powerup_spawned"]
+    assert [e["powerup_type"] for e in spawned] == ["mystery"]
 
 
 def test_destroyed_small_rock_never_spawns_a_pickup(tmp_path, monkeypatch):
@@ -356,6 +385,27 @@ def test_pickup_renders_its_letter_inside_the_circle():
         for dx in range(-8, 9, 2)
         for dy in range(-8, 9, 2)
     ]
+    assert any(pixel != (*PALETTE["paper"], 255) for pixel in box)
+
+
+def test_mystery_pickup_draws_the_question_mark_in_violet():
+    """The ? wildcard reuses the letter-label mechanism, but in its own
+    violet: an unknown pickup that drew like a known one would lie about
+    the gamble it offers."""
+    pygame.init()
+    screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
+    pickup = PowerUp(640, 360, PowerUpType.MYSTERY)
+
+    screen.fill(PALETTE["paper"])
+    pickup.draw(screen)
+
+    violet = (*PALETTE["powerup_mystery"], 255)
+    box = [
+        screen.get_at((640 + dx, 360 + dy))
+        for dx in range(-8, 9, 2)
+        for dy in range(-8, 9, 2)
+    ]
+    assert any(pixel == violet for pixel in box)  # the ? stamped in violet
     assert any(pixel != (*PALETTE["paper"], 255) for pixel in box)
 
 

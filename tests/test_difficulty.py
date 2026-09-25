@@ -12,6 +12,7 @@ import pytest
 
 from asteroidfield import wave_params
 from constants import (
+    BOSS_WAVE_INTERVAL,
     DIFFICULTY_KEY_LABELS,
     DIFFICULTY_MODES,
     DIFFICULTY_SELECT_KEYS,
@@ -90,7 +91,14 @@ class TestWaveParamsByMode:
         assert hard < normal
 
     def test_easy_intervals_never_tighten_across_waves(self):
-        intervals = [wave_params(w, "easy")["spawn_interval"] for w in range(1, 16)]
+        # Boss waves are excluded: the insanity build's boss dict is
+        # mode-independent by design (zero cadence as inert filler), so the
+        # difficulty invariants are about the normal waves only — the boss
+        # dict itself is pinned by the boss tests.
+        waves = [
+            w for w in range(1, 16) if w % BOSS_WAVE_INTERVAL
+        ]
+        intervals = [wave_params(w, "easy")["spawn_interval"] for w in waves]
         assert all(late <= early for early, late in zip(intervals, intervals[1:]))
         assert intervals[-1] >= WAVE_SPAWN_INTERVAL_FLOOR
 
@@ -101,7 +109,12 @@ class TestWaveParamsByMode:
             assert easy >= hard
 
     def test_easy_speeds_stay_under_hard_speeds_at_every_wave(self):
+        # Boss waves are excluded: the boss dict is mode-independent by
+        # design (speeds 0 for every mode), pinned by the boss tests — the
+        # strict Easy < Hard ordering is a normal-wave invariant.
         for wave in range(1, 16):
+            if wave % BOSS_WAVE_INTERVAL == 0:
+                continue
             easy = wave_params(wave, "easy")
             hard = wave_params(wave, "hard")
             assert easy["speed_min"] < hard["speed_min"]

@@ -3,7 +3,9 @@
 A pygame arcade shooter wrapped in an idle economy: destruction mints
 credits, credits buy upgrades and powerups, and purchases feed back into
 destruction. Nothing is lost on death — credits, upgrade levels, and
-powerup access persist between sessions.
+powerup access persist between sessions. The insanity layer piles on:
+combo chains, hit-stop beats, a dash, boss waves, hostile saucers,
+black holes, and cursed mystery pickups.
 
 ## Running the game
 
@@ -29,6 +31,7 @@ the next hit is fatal.
 |---|---|
 | `W`/`A`/`S`/`D` | Thrust and rotate the ship |
 | `Space` | Shoot (instant-kill shots; cooldown scales with Fire-rate levels) |
+| `L`/`R`-`SHIFT` | Dash — impulse along the nose, 0.25 s of invulnerability, 2 s cooldown; breaks the combo |
 | Mouse click | Chip the rock under the cursor — the clicker verb |
 | `1`–`4` | Buy shop upgrades: Nanoblade, Fire-rate, Income, Drones (during a run) |
 | `1`/`2`/`3` | Pick Easy / Normal / Hard on the start menu or the game-over screen — the choice launches the run and persists |
@@ -77,8 +80,9 @@ level (floored); **Income** multiplies every payout ×1.15 per level;
 exponentially (`cost = base × growth^level`), so the shop always has a
 next goal.
 
-**Powerups** are bought activations, not drops, and each use escalates
-that powerup's own price ×1.25 (persisted):
+**Powerups** are bought activations, and each use escalates that
+powerup's own price ×1.25 (persisted); the field also drops pickups —
+see the insanity layer:
 
 | Key | Powerup | Effect | Duration |
 |---|---|---|---|
@@ -105,16 +109,61 @@ pay the idle ledger and survive a restart. Tuning lives at the end of
 `constants.py` (`MILESTONE_WAVE_INTERVAL`, `MILESTONE_SHIELD_CHARGES`,
 `MILESTONE_CREDIT_BONUS`).
 
-## Timed drops
+## The insanity layer
 
-Destroying a non-small rock has a 15% chance to drop a timed pickup —
+Every piece rides the shared destruction pipeline — kills chain,
+freeze, and pay the same way they always did.
+
+**Combo chains.** Every asteroid destroyed by player-or-drone fire
+within 3 s of the previous kill extends the chain; each kill's points
+multiply by the chain (+0.25 per kill, capped at ×5). Dashing or losing
+a life breaks it; a shielded hit doesn't. The HUD shows `COMBO xN (t)`
+under the wave slot, and the game-over screen reports the run's top
+chain and best multiplier. Combos are score-only — credits mint exactly
+as they always did.
+
+**Hit-stop.** Every destruction freezes the whole simulation for a
+50–90 ms beat (longer when several rocks die in one frame), so kills
+land with weight. The freeze ticks on real time and always ends.
+
+**Dash.** `L/R-SHIFT` fires an impulse along the nose with 0.25 s of
+invulnerability — the ship blinks, exactly like a respawn grace — on a
+2 s cooldown. It's the panic button, and it prices itself: dashing
+breaks the combo.
+
+**Boss waves.** Every fifth wave fields one boss: a huge multi-hit rock
+with a health bar across the top. At 70/40/15% HP it spawns two minion
+asteroids each — the fight gets harder as it gets safer. A boss pays
+300 points through the combo, never mints credits, and can't be
+click-chipped; black holes can shove it around, but it never leaves
+the arena.
+
+**Hostile saucers.** From wave 2, saucers cross the screen with a sine
+bob and fire real shots at the ship: big saucers spray 3-way spreads
+(2 HP, 200 pts), small ones fire fast aimed single shots (1 HP,
+1000 pts). Saucer shots cost lives and split the asteroids they hit;
+saucers that cross the screen despawn unpaid.
+
+**Black holes.** From wave 3 (never during a boss wave), a gravity
+well opens for 12 s and pulls rocks, shots, saucers, and the ship with
+inverse-falloff acceleration. It kills nothing directly — the danger
+is eaten agency and drifted trajectories.
+
+**Chaos pickups.** Destroyed non-small asteroids have a 15% chance to
+drop a pickup, and 40% of drops are a violet `?` mystery pickup whose
+contents roll only on collect: 75% an equal draw from the seven buffs —
 **SHIELD** absorbs one hit, **RAPID** cuts the shot cooldown ×0.4,
-**TRIPLE** fires a three-way spread, and **MAGNET** bends drifting
-pickups and credit floats toward the ship (a force on their velocity,
-never a teleport — closer bodies pull harder, capped so nothing slams
-past the hull). Each lasts 8 seconds; an active magnet shows a
-`MAGNET Ns` tag top-right. Tuning lives at the end of `constants.py`
-(`POWERUP_*`, including `POWERUP_MAGNET_*`).
+**TRIPLE** fires a three-way spread, **PIERCE** drills shots through
+rocks, **HOMING** steers them at the nearest rock, **BOMB** clears the
+field through the normal pipeline (credits pay, the combo doesn't), and
+**MAGNET** bends drifting pickups and credit floats toward the ship (a
+force on their velocity, never a teleport — closer bodies pull harder,
+capped so nothing slams past the hull; an active magnet shows a
+`MAGNET Ns` tag top-right) — and 25% a curse, either REVERSE (flips the
+controls for 6 s) or DISARM (strips the shield and every running effect
+on reveal). Timed effects last 8 s; tuning lives at the end of
+`constants.py` (`POWERUP_*`, including `POWERUP_MAGNET_*`, and the
+`INSANITY` block).
 
 ## Persistence
 
@@ -142,13 +191,19 @@ uv run pytest
 ```
 
 The suite covers the collision pipeline, waves, pickups, particles,
-sound, the economy ledger, shop, drones, and powerups — including the
-balance gates (a fresh save affords the first Nanoblade within 30 s of
+sound, the economy ledger, shop, drones, and powerups — plus the seven
+insanity features (combo, hit-stop, dash, boss, saucer, black hole,
+chaos pickups), each with its own test module — including the balance
+gates (a fresh save affords the first Nanoblade within 30 s of
 shooting; a nuke clears the field and pays every rock exactly once).
 
-The ten-minute balance measurement — income growth vs field density —
-runs as a standalone simulation of the main loop:
+The ten-minute balance measurement — income growth vs field density,
+plus the insanity pressure read (combo chains, boss/saucer/hole tempo,
+chaos drops) — runs as a standalone simulation of the main loop. Pin a
+seed for a reproducible session; `--json` prints a machine-readable
+report and exits nonzero on broken accounting or a silent feature:
 
 ```bash
-SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy uv run python -m tests._balance_sim
+SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy \
+    uv run python -m tests._balance_sim 10 --seed 20260924 --json
 ```
