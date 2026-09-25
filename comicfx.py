@@ -23,6 +23,14 @@ screen-level print over the world, under the HUD.
 Comic bursts (visual V4): destruction pops a jagged polygon and a rotated
 onomatopoeia word — POW!/BOOM!/ZAP! — behind the debris cloud, with text
 surfaces cached per (word, color, size) and live words capped.
+
+Comic HUD panels (visual V5): build_panel() pre-renders the yellow
+halftone plates with black ink borders that the HUD, the game-over
+overlay, and the wave banner sit on, and cached_rotated_text() extends
+the render cache with rotated copies (the banner's per-letter tilt) —
+still one render per key, never per frame. The shared fonts render
+BOLD: comic lettering is the point, and one flag at font creation keeps
+every cache entry's metrics consistent.
 """
 
 import random
@@ -236,8 +244,16 @@ def _font(size):
     font = _text_fonts.get(size)
     if font is None:
         font = pygame.font.Font(None, size)
+        font.set_bold(True)  # comic lettering (V5) — set once, at creation
         _text_fonts[size] = font
     return font
+
+
+def shared_font(size):
+    """The shared bold font for a size — the accessor hud.py's font
+    helpers delegate to, so ad-hoc renders (test rect math) measure the
+    same glyphs the cache produces."""
+    return _font(size)
 
 
 def cached_text(word, color, size):
@@ -252,6 +268,67 @@ def cached_text(word, color, size):
     if surface is None:
         surface = _font(size).render(word, True, color)
         _text_cache[key] = surface
+    return surface
+
+
+# --- Comic HUD panels (visual V5) ---------------------------------------------
+# The yellow halftone plates with black ink borders that the HUD, the
+# game-over overlay, and the wave banner sit on. Pre-rendered like the
+# background: build once per size, blit forever — never drawn with
+# primitives per frame.
+
+PANEL_DOT_SPACING = 10  # px between halftone dots on a panel
+PANEL_DOT_RADIUS = 2
+PANEL_BORDER_PX = 3     # the ink border stroke
+
+
+def build_panel(width, height):
+    """Pre-render one comic panel: yellow plate, darker halftone dots, black
+    ink border. Opaque — blitting it is the cheap full-color case, and a
+    uniform surface alpha (the halftone print's mechanism) fades it cleanly.
+
+    Deterministic — pure arithmetic, no RNG, so every panel of a size is
+    pixel-identical (tests may assert against its colors)."""
+    panel = pygame.Surface((width, height))
+    panel.fill(PALETTE["hud_panel"])
+
+    # hex-packed dot grid, same geometry family as the screen halftone
+    dot_color = PALETTE["hud_panel_dot"]
+    rows = height // PANEL_DOT_SPACING + 1
+    cols = width // PANEL_DOT_SPACING + 1
+    for row in range(rows):
+        y = PANEL_BORDER_PX + row * PANEL_DOT_SPACING
+        x_offset = (row % 2) * PANEL_DOT_SPACING / 2
+        for col in range(cols):
+            x = PANEL_BORDER_PX + col * PANEL_DOT_SPACING + x_offset
+            if x > width - PANEL_BORDER_PX or y > height - PANEL_BORDER_PX:
+                continue  # dots stay inside the ink border
+            pygame.draw.circle(panel, dot_color, (x, y), PANEL_DOT_RADIUS)
+
+    pygame.draw.rect(panel, INK, panel.get_rect(), PANEL_BORDER_PX)
+    return panel
+
+
+_rotated_cache = {}
+
+
+def cached_rotated_text(text, color, size, angle):
+    """A rotated copy of a cached text surface, shared per
+    (text, color, size, angle).
+
+    The wave banner's per-letter tilt: each (letter, alpha band, tilt)
+    combination rotates exactly once for the process lifetime — pygame's
+    transform allocates a new surface per call, so rotation per frame
+    would repeat the allocation pattern the render cache exists to kill.
+    Entries are borrowed, never mutated (no set_alpha on rotated copies:
+    their fade bakes into the color, see hud.WaveBanner)."""
+    if angle == 0:
+        return cached_text(text, color, size)
+    key = (text, color, size, angle)
+    surface = _rotated_cache.get(key)
+    if surface is None:
+        surface = pygame.transform.rotate(cached_text(text, color, size), angle)
+        _rotated_cache[key] = surface
     return surface
 
 

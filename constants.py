@@ -52,6 +52,25 @@ HUD_FONT_SIZE = 28
 HUD_MARGIN = 12
 HUD_LINE_STEP = 34
 
+# --- Comic HUD panels (visual V5) -------------------------------------------
+# The score/lives/wave HUD, the game-over overlay lines, and the wave banner
+# sit on pre-rendered yellow halftone panels with black ink borders. Padding
+# is shared by all three surfaces; the banner's per-letter tilt and the fade
+# quantization are banner-only.
+
+PANEL_PAD_X = 14                   # px of yellow between border and text, each side
+PANEL_PAD_Y = 8                    # px of yellow between border and text, top/bottom
+
+# The banner fade renders at BANNER_ALPHA_STEPS discrete alpha bands (baked
+# into the glyph colors through the shared cache), so the number of cached
+# letter surfaces is bounded — a cache entry per (letter, band, tilt), never
+# per frame. Eight bands over a 2s flash read as a smooth glide.
+BANNER_ALPHA_STEPS = 8
+
+# Slight per-letter rotation (degrees) — comic hand-lettering, alternating
+# sign down the line. Locked small: this is a tilt, not a tumble.
+WAVE_BANNER_TILT_DEGREES = 4.0
+
 # --- Spider-Verse palette (visual V1) --------------------------------------
 # The single place color lives: every entity draw, screen fill, and the HUD
 # text constant resolve through this table, and the pixel tests assert
@@ -73,7 +92,8 @@ PALETTE = {
     "powerup_triple": (255, 78, 205),
     "spark": (255, 210, 63),       # warm comic debris (F5)
     "hud_ink": (255, 247, 230),    # warm white HUD text
-    "hud_panel": (255, 210, 63),   # yellow panels (HUD restyle, later visual PR)
+    "hud_panel": (255, 210, 63),   # yellow panels (HUD restyle, V5)
+    "hud_panel_dot": (222, 176, 40),  # darker mustard halftone dots on the panels (V5)
     "banner": (255, 210, 63),
 }
 
