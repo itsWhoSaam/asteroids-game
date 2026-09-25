@@ -732,3 +732,20 @@ MINE_BLAST_SHAKE = 10.0             # px — a detonation rocks the screen
 # hostile red the boss bar already owns.
 PALETTE["mine_hull"] = (44, 40, 62)
 MINE_MARKER_COLOR = PALETTE["fringe_r"]
+
+
+# --- Near-miss graze bonus (Tier 3) --------------------------------------------
+# Dodging a rock's close pass pays a small score bonus with its own popup. The
+# band sits strictly outside the collision radius (a touching rock is a hit,
+# never a graze) and inside collision + GRAZE_BAND_PX, outer boundary inclusive;
+# the width is measured from the hull-to-hull touching point, so it reads the
+# same for every rock size. Both bodies must clear GRAZE_MIN_SPEED — a parked
+# ship or a near-still rock is no dodge — and the paying pair re-arms after
+# GRAZE_COOLDOWN_S, so hovering on a flank cannot farm the band. Score only:
+# no destruction happens, so the destruction-diff mint never sees a graze and
+# the credit ledger is untouched by construction. All numbers are playtest
+# starting values; none is structural.
+GRAZE_BAND_PX = 24.0    # px beyond the collision radius that still pays
+GRAZE_MIN_SPEED = 50.0  # px/s — both bodies must move at least this fast
+GRAZE_POINTS = 25       # the small score bonus, score-only (never credits)
+GRAZE_COOLDOWN_S = 3.0  # per-pair re-arm time after a paid graze

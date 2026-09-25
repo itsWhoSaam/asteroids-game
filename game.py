@@ -69,6 +69,13 @@ class Game:
         # (see toggle_help), and cleared by game over and restart so a stale
         # list never covers another screen's prompt.
         self.help_open = False
+        # Near-miss graze bonus (Tier 3): a sim-time run clock for the
+        # per-pair cooldowns plus the cooldown table itself, keyed on the
+        # live rocks — this one ship is each pair's other half. The clock
+        # only ever advances (tick), so restarting needs no reset of it;
+        # the cooldowns clear with the world they key on (restart).
+        self.now = 0.0
+        self.graze_cooldowns = {}
         # Run-stat counters (run-stats PR): per-run, never saved. The player
         # records against the run's one instance — injected here, the one
         # place both exist — so restart() must reset it in place, never
@@ -186,7 +193,10 @@ class Game:
 
     def tick(self, dt):
         """Run-state frame tick: the combo window drains on the same dt the
-        simulation runs on, so a hit-stop freeze holds the chain alive too."""
+        simulation runs on, so a hit-stop freeze holds the chain alive too.
+        The run clock rides the same dt — graze cooldowns read it, so a
+        frozen frame holds them with everything else."""
+        self.now += dt
         self.combo.tick(dt)
 
     def player_hit(self):
@@ -247,6 +257,11 @@ class Game:
         self.state = "playing"
         # Insanity core: the combo meter and its run stats die with the run.
         self.combo.reset()
+        # Graze cooldowns (Tier 3) key on the live rocks — cleared with the
+        # world they key on. Both restart hooks land here (game-over R and
+        # the pause overlay's R through restart_run), so a fresh run can
+        # graze from its first frame.
+        self.graze_cooldowns = {}
         # Both restart hooks land here (game-over R and the pause overlay's
         # R): a fresh run is always live, unpaused, and help-free.
         self.paused = False
