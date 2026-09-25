@@ -779,9 +779,12 @@ def main():
     AsteroidField.containers = updatable
     FloatingText.containers = (floaters, updatable, fx)
     Burst.containers = (fx, updatable)
-    SaucerShot.containers = (enemy_shots, updatable, drawable)
-    Saucer.containers = (saucers, drawable)
-    BlackHole.containers = (blackholes, updatable, drawable)
+    SaucerShot.containers = (enemy_shots, updatable, entities)
+    # Saucers are NOT in updatable: their step needs the player and the
+    # enemy-shot group, which the plain group pass doesn't forward —
+    # update_world steps them explicitly instead.
+    Saucer.containers = (saucers, entities)
+    BlackHole.containers = (blackholes, updatable, entities)
 
     Player.containers = (updatable, entities)
     player1 = Player(SCREEN_WIDTH/2, SCREEN_HEIGHT/2 )
