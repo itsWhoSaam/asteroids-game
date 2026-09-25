@@ -320,3 +320,29 @@ HUD_TAG_GAP = 10                   # px between the VOL and MUTED tags top-right
 # per-pixel alpha breaks the headless dummy drivers.
 PAUSE_OVERLAY_DIM_COLOR = (12, 10, 34)  # deep-void family, over the paper
 PAUSE_OVERLAY_DIM_ALPHA = 160           # 0–255 dim strength over the frame
+
+# --- Extra SFX (UX wave) ------------------------------------------------------
+# Three more cues out of the same synth block: the drones' pew (a fleet fires
+# on a cadence, so it sits under the player's shot), the shop's denied buzz
+# for an unaffordable purchase, and the wave-clear arpeggio. Every one scales
+# by master volume and honors mute at playback, exactly like the cues above.
+SFX_DRONE_FIRE = "drone_fire"
+SFX_DENIED = "denied"
+SFX_WAVE_CLEAR = "wave_clear"
+
+# Drone fire: a shorter, brighter pew than the player's own shot.
+SFX_DRONE_FIRE_DURATION = 0.07
+SFX_DRONE_FIRE_SWEEP = (1600.0, 800.0)
+SFX_DRONE_FIRE_VOLUME = 0.35
+
+# Denied: two low square thuds with a gap — the "can't afford it" buzz.
+SFX_DENIED_HZ = 130.0
+SFX_DENIED_THUD_S = 0.07
+SFX_DENIED_GAP_S = 0.04
+SFX_DENIED_VOLUME = 0.4
+
+# Wave clear: a rising major arpeggio (C5 E5 G5 C6), one humped note per slot.
+SFX_WAVE_CLEAR_NOTE_S = 0.09
+SFX_WAVE_CLEAR_ARPEGGIO = (523.25, 659.25, 783.99, 1046.50)
+SFX_WAVE_CLEAR_VOLUME = 0.45
+

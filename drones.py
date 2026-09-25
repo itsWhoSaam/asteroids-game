@@ -13,6 +13,8 @@ this module supplies only the fleet's estimated rate and the fading
 
 import pygame
 
+import sound
+
 from constants import (
     DRONE_CREDITS_PER_SHOT,
     DRONE_FIRE_INTERVAL_S,
@@ -90,6 +92,7 @@ class DroneTurret:
         muzzle = self.muzzle(player)
         shot = Shot(muzzle.x, muzzle.y)
         shot.velocity = self.aim(player, asteroids) * DRONE_SHOT_SPEED
+        sound.play(sound.SFX_DRONE_FIRE)  # extra SFX: the turret's own pew
 
     def update(self, dt, player, asteroids, shots):
         self.orbit_angle = (self.orbit_angle + DRONE_ORBIT_SPEED * dt) % 360.0

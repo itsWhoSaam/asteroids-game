@@ -19,6 +19,15 @@ import pygame
 from constants import (
     ASTEROID_MIN_RADIUS,
     SFX_CHANNELS,
+    SFX_DENIED,
+    SFX_DENIED_GAP_S,
+    SFX_DENIED_HZ,
+    SFX_DENIED_THUD_S,
+    SFX_DENIED_VOLUME,
+    SFX_DRONE_FIRE,
+    SFX_DRONE_FIRE_DURATION,
+    SFX_DRONE_FIRE_SWEEP,
+    SFX_DRONE_FIRE_VOLUME,
     SFX_EXPLOSION_LARGE,
     SFX_EXPLOSION_MEDIUM,
     SFX_EXPLOSION_SMALL,
@@ -39,6 +48,10 @@ from constants import (
     SFX_SHOOT_DURATION,
     SFX_SHOOT_SWEEP,
     SFX_SHOOT_VOLUME,
+    SFX_WAVE_CLEAR,
+    SFX_WAVE_CLEAR_ARPEGGIO,
+    SFX_WAVE_CLEAR_NOTE_S,
+    SFX_WAVE_CLEAR_VOLUME,
     VOLUME_DEFAULT,
     VOLUME_MAX,
     VOLUME_MIN,
@@ -71,6 +84,9 @@ def init():
             SFX_EXPLOSION_LARGE: build_explosion("large"),
             SFX_POWERUP: build_powerup(),
             SFX_GAME_OVER: build_game_over(),
+            SFX_DRONE_FIRE: build_drone_fire(),
+            SFX_DENIED: build_denied(),
+            SFX_WAVE_CLEAR: build_wave_clear(),
         }
     except Exception as exc:
         _sounds = {}
@@ -244,3 +260,72 @@ def build_game_over():
         )
 
     return _make_sound(_render(SFX_GAME_OVER_DURATION, wave))
+
+
+def denied_thud_gain(t, thud_s, gap_s):
+    """The buzz's on/off gate: 1.0 inside a thud, 0.0 in the gap between
+    them — pure so the two-thud shape is pinnable in tests."""
+    cycle = t % (thud_s + gap_s)
+    return 1.0 if cycle < thud_s else 0.0
+
+
+def build_denied():
+    """Two low square thuds with a gap — the can't-afford-it buzz.
+
+    A square carrier (the sign of a sine) reads as a buzz where a chirp
+    would read as a tone; the whole-cue decay leans the second thud softer
+    than the first, like a door thudded twice.
+    """
+    span = 2 * SFX_DENIED_THUD_S + SFX_DENIED_GAP_S
+
+    def wave(t, progress):
+        thud = math.copysign(1.0, math.sin(2 * math.pi * SFX_DENIED_HZ * t))
+        return (
+            thud
+            * denied_thud_gain(t, SFX_DENIED_THUD_S, SFX_DENIED_GAP_S)
+            * math.exp(-3.0 * progress)
+            * SFX_DENIED_VOLUME
+        )
+
+    return _make_sound(_render(span, wave))
+
+
+def wave_clear_note(t, note_s, arpeggio):
+    """The jingle's oscillator: one humped sine per arpeggio slot — pure.
+
+    The carrier restarts at each slot boundary (local phase), so the note
+    attacks clean instead of clicking mid-phase; the sine hump is the
+    attack/decay envelope. Beyond the last slot the final note holds.
+    """
+    index = min(int(t / note_s), len(arpeggio) - 1)
+    local = t - index * note_s
+    hump = math.sin(math.pi * (local / note_s))
+    return math.sin(2 * math.pi * arpeggio[index] * local) * hump
+
+
+def build_wave_clear():
+    """A rising major arpeggio — the field is clear, the wave is won."""
+    notes = len(SFX_WAVE_CLEAR_ARPEGGIO)
+
+    def wave(t, progress):
+        return (
+            wave_clear_note(t, SFX_WAVE_CLEAR_NOTE_S, SFX_WAVE_CLEAR_ARPEGGIO)
+            * SFX_WAVE_CLEAR_VOLUME
+        )
+
+    return _make_sound(_render(notes * SFX_WAVE_CLEAR_NOTE_S, wave))
+
+
+def build_drone_fire():
+    """The turret pew: the player's shot shape, shorter and brighter."""
+    start, end = SFX_DRONE_FIRE_SWEEP
+
+    def wave(t, progress):
+        return (
+            chirp(t, start, end, SFX_DRONE_FIRE_DURATION)
+            * math.exp(-6.0 * progress)
+            * SFX_DRONE_FIRE_VOLUME
+        )
+
+    return _make_sound(_render(SFX_DRONE_FIRE_DURATION, wave))
+
