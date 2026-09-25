@@ -20,11 +20,17 @@ from comicfx import (
 from constants import (
     ASTEROID_MIN_RADIUS,
     BANNER_ALPHA_STEPS,
+    DIFFICULTY_DEFAULT,
+    DIFFICULTY_KEY_LABELS,
+    DIFFICULTY_MODES,
+    DIFFICULTY_SAVE_KEY,
+    DIFFICULTY_TABLE,
     GAME_OVER_FONT_SIZE,
     GAME_OVER_LINE_STEP,
     HELP_FONT_SIZE,
     HELP_LINE_STEP,
     HELP_TITLE_STEP,
+    HIGH_SCORE_SAVE_KEYS,
     HUD_FONT_SIZE,
     HUD_LINE_STEP,
     HUD_MARGIN,
@@ -133,10 +139,19 @@ class Score:
     def __init__(self, save_path=SAVE_PATH):
         self.save_path = save_path
         # The whole save dict is kept so unknown keys from other features
-        # survive our writes; only the two managed keys are updated.
+        # survive our writes; only the managed keys are updated.
         self._data = load_save(save_path)
+        # Tier 2 difficulty: the persisted choice. A missing or corrupt key
+        # falls back to Normal here rather than in load_save — that loader's
+        # managed-key set (and its round-trip pin) stays untouched.
+        self.mode = self._data.get(DIFFICULTY_SAVE_KEY)
+        if self.mode not in DIFFICULTY_MODES:
+            self.mode = DIFFICULTY_DEFAULT
         self.current = 0
-        self.high = self._data["high_score"]
+        self.high = self._mode_high(self.mode)
+        # The legacy overall best (the pre-difficulty high_score key): the
+        # key keeps its old meaning and is still written on every crossing.
+        self._global_high = self._data["high_score"]
         self.muted = self._data["muted"]
         self.volume = self._data["volume"]
         self._beaten = False
@@ -155,7 +170,10 @@ class Score:
             self._beaten = True
             log_event("high_score_beaten", score=self.current)
         self.high = self.current
-        self._data["high_score"] = self.high
+        if self.high > self._global_high:
+            self._global_high = self.high
+        self._data[HIGH_SCORE_SAVE_KEYS[self.mode]] = self.high
+        self._data["high_score"] = self._global_high
         self._data["muted"] = self.muted
         self._data["volume"] = self.volume
         write_save(self.save_path, self._data)
@@ -176,6 +194,42 @@ class Score:
         self._data["volume"] = self.volume
         write_save(self.save_path, self._data)
         return self.volume
+
+    def set_mode(self, mode):
+        """Select and persist the difficulty for the next run (Tier 2).
+
+        The high-score comparison retargets to the new mode's best and the
+        beaten flag re-arms — a fresh comparison, not a continuation. Raises
+        on an unknown mode: a silently accepted typo would start the next
+        run on the wrong tuning.
+        """
+        if mode not in DIFFICULTY_MODES:
+            raise ValueError(f"unknown difficulty mode: {mode!r}")
+        self.mode = mode
+        self._data[DIFFICULTY_SAVE_KEY] = mode
+        write_save(self.save_path, self._data)
+        self.high = self._mode_high(mode)
+        self._beaten = False
+        return mode
+
+    def _mode_high(self, mode):
+        """A mode's persisted best (Tier 2), defensively read.
+
+        A missing per-mode key seeds Normal from the legacy high_score —
+        every pre-difficulty record was set on the shipped tuning — while
+        the other modes start at zero; a corrupt key falls back the same way.
+        """
+        saved = self._data.get(HIGH_SCORE_SAVE_KEYS[mode])
+        if isinstance(saved, int) and not isinstance(saved, bool):
+            return saved
+        if mode == DIFFICULTY_DEFAULT:
+            return self._data["high_score"]
+        return 0
+
+    @property
+    def mode_highs(self):
+        """Every mode's persisted best — the difficulty menu's rows."""
+        return {mode: self._mode_high(mode) for mode in DIFFICULTY_MODES}
 
     @property
     def beaten(self):
@@ -413,18 +467,31 @@ def game_over_font():
     return shared_font(GAME_OVER_FONT_SIZE)
 
 
-def draw_game_over(screen, score, new_high=False):
+def game_over_lines(score, new_high=False, mode=None):
+    """The game-over overlay's lines, pure (Tier 2): the R/Q prompt grows the
+    1/2/3 difficulty select when a mode is known — never a fourth line, the
+    run summary block seats against the three-line worst case."""
+    lines = [f"Game over — score {score}"]
+    if new_high:
+        lines.append("New high score!")
+    if mode is None:
+        lines.append("press R to restart, Q to quit")
+    else:
+        lines.append(f"R restart - 1/2/3 mode ({mode.upper()}) - Q quit")
+    return lines
+
+
+def draw_game_over(screen, score, new_high=False, mode=None):
     """Centered game-over overlay (engagement F2): final score, the
     new-high-score state when the run set a record, and the R/Q prompt —
     each line on its own yellow halftone caption panel (visual V5).
 
-    Panel widths bucket to 32px so a run's score line reuses panels across
-    restarts instead of growing the cache per point scored; text renders
-    through the shared cache."""
-    lines = [f"Game over — score {score}"]
-    if new_high:
-        lines.append("New high score!")
-    lines.append("press R to restart, Q to quit")
+    Tier 2: when the run's mode is known the prompt also offers the 1/2/3
+    difficulty select for the next run (optional kwarg — None keeps the
+    exact pre-difficulty prompt). Panel widths bucket to 32px so a run's
+    score line reuses panels across restarts instead of growing the cache
+    per point scored; text renders through the shared cache."""
+    lines = game_over_lines(score, new_high, mode)
 
     font = game_over_font()
     height = len(lines) * GAME_OVER_LINE_STEP
@@ -577,6 +644,11 @@ def help_keymap():
         ("Audio", "[ ]", "volume down / up"),
         ("Game", "P / Esc", "pause / resume"),
         ("Game", "H", "toggle this help"),
+        (
+            "Difficulty",
+            " ".join(DIFFICULTY_KEY_LABELS[mode] for mode in DIFFICULTY_MODES),
+            "pick mode on the start / game-over screens",
+        ),
         ("Game over", "R / Q", "restart / quit"),
     ]
     return rows
@@ -614,6 +686,55 @@ def draw_help(screen):
             action_surface,
             action_surface.get_rect(midleft=(SCREEN_WIDTH / 2 + 24, y)),
         )
+
+
+def mode_menu_lines(current, highs):
+    """The difficulty menu's rows, pure (Tier 2): one line per mode in
+    DIFFICULTY_MODES order — select key, name, the table's blurb, the
+    mode's best — with the saved choice marked, so the menu cannot
+    disagree with the table the select keys read."""
+    lines = []
+    for mode in DIFFICULTY_MODES:
+        cfg = DIFFICULTY_TABLE[mode]
+        marker = "  < saved" if mode == current else ""
+        best = int(highs.get(mode, 0))
+        lines.append(
+            f"{DIFFICULTY_KEY_LABELS[mode]}  {mode.upper()}  —  "
+            f"{cfg['blurb']}  —  best {best}{marker}"
+        )
+    return lines
+
+
+def draw_mode_menu(screen, current=DIFFICULTY_DEFAULT, highs=None):
+    """The boot menu (Tier 2 difficulty): the shared dim sheet, then
+    SELECT DIFFICULTY and one row per mode — 1/2/3 launch a run in that
+    mode (main's select_mode). The help overlay's family: raw ink text
+    over the dim, uniform surface alpha only, headless-safe."""
+    screen.blit(pause_dim(), (0, 0))
+    rows = mode_menu_lines(current, highs or {})
+    footer = "press 1, 2 or 3 to launch  -  Q quits"
+    block_height = HELP_TITLE_STEP + len(rows) * HELP_LINE_STEP + HELP_LINE_STEP
+    top = (SCREEN_HEIGHT - block_height) / 2
+    title = cached_text(
+        "SELECT DIFFICULTY", PALETTE["hud_ink"], GAME_OVER_FONT_SIZE
+    )
+    screen.blit(
+        title, title.get_rect(center=(SCREEN_WIDTH / 2, top + HELP_TITLE_STEP / 2))
+    )
+    for row, text in enumerate(rows):
+        y = top + HELP_TITLE_STEP + row * HELP_LINE_STEP
+        surface = cached_text(text, PALETTE["hud_ink"], HELP_FONT_SIZE)
+        screen.blit(surface, surface.get_rect(center=(SCREEN_WIDTH / 2, y)))
+    note = cached_text(footer, PALETTE["hud_panel_dot"], HELP_FONT_SIZE)
+    screen.blit(
+        note,
+        note.get_rect(
+            center=(
+                SCREEN_WIDTH / 2,
+                top + HELP_TITLE_STEP + len(rows) * HELP_LINE_STEP,
+            )
+        ),
+    )
 
 
 class WaveBanner:

@@ -418,3 +418,44 @@ CHIP_CRACK_FRACTIONS = (0.25, 0.50, 0.75)
 STATS_FONT_SIZE = 24        # dense summary rows — the help list's size
 STATS_LINE_STEP = 30        # px between summary rows
 STATS_BLOCK_GAP = 36        # px between the game-over block and the summary
+
+# --- Difficulty modes (Tier 2) -----------------------------------------------
+# Easy/Normal/Hard: a mode multiplier table consumed where lives and the
+# wave_params spawns are read. Normal IS the shipped tuning — its row
+# multiplies by exactly 1.0, so the default flow (and the balance sim) plays
+# identically to before. Selection lives on the start/game-over flow: the boot
+# menu and the game-over prompt answer 1/2/3, and the choice persists in
+# game_save.json through the save loader's read-modify-write merge. Each mode
+# tracks its own best as a save key; the legacy high_score key keeps its old
+# meaning (the overall best) and is still written, so pre-difficulty saves
+# migrate instead of breaking.
+DIFFICULTY_MODES = ("easy", "normal", "hard")
+DIFFICULTY_DEFAULT = "normal"
+DIFFICULTY_TABLE = {
+    "easy": {"lives": 5, "spawn_interval_mult": 1.25, "speed_mult": 0.80,
+             "blurb": "5 lives, slower sparser rocks"},
+    "normal": {"lives": PLAYER_START_LIVES, "spawn_interval_mult": 1.0,
+               "speed_mult": 1.0, "blurb": "3 lives, the shipped tuning"},
+    "hard": {"lives": 2, "spawn_interval_mult": 0.80, "speed_mult": 1.25,
+             "blurb": "2 lives, faster denser rocks"},
+}
+DIFFICULTY_SAVE_KEY = "difficulty"
+
+# Per-mode bests ride the save merge as three keys, one per mode.
+HIGH_SCORE_SAVE_KEYS = {
+    "easy": "high_score_easy",
+    "normal": "high_score_normal",
+    "hard": "high_score_hard",
+}
+
+# The start/game-over flow's select keys: 1 Easy, 2 Normal, 3 Hard. They own
+# 1/2/3 only outside a live run — during play the shop owns 1-4, so the
+# pump's shop branch gates on playing and these answer on menu/game-over.
+DIFFICULTY_SELECT_KEYS = {
+    pygame.K_1: "easy",
+    pygame.K_2: "normal",
+    pygame.K_3: "hard",
+}
+DIFFICULTY_KEY_LABELS = {
+    mode: chr(key) for key, mode in DIFFICULTY_SELECT_KEYS.items()
+}

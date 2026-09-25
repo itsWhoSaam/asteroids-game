@@ -9,6 +9,8 @@ from constants import (
     ASTEROID_SPAWN_RATE_SECONDS,
     ASTEROID_SPEED_MAX,
     ASTEROID_SPEED_MIN,
+    DIFFICULTY_DEFAULT,
+    DIFFICULTY_TABLE,
     SCREEN_HEIGHT,
     SCREEN_WIDTH,
     WAVE_SPAWN_DECAY,
@@ -18,20 +20,35 @@ from constants import (
 )
 
 
-def wave_params(wave):
+def wave_params(wave, mode=DIFFICULTY_DEFAULT):
     """Difficulty for a wave, pure so tests pin the math directly (F3).
 
     The spawn cadence tightens x0.9 per wave down to its floor; the asteroid
     speed band climbs from its wave-1 base. Kept as a plain dict — the
     spec's key interface for this feature.
+
+    Tier 2 difficulty modes: the mode's multipliers scale the interval and
+    the whole speed band (optional kwarg — the handle_collisions precedent —
+    so the pinned single-argument calls keep their exact Normal numbers).
+    Multipliers are positive, so the Easy >= Normal >= Hard orderings survive
+    the scaling; the shared floor can equalize the intervals at late waves,
+    which the monotonicity tests allow. Speeds round to ints — the field's
+    random.randint needs them and Normal's 1.0 keeps the exact legacy band.
     """
+    cfg = DIFFICULTY_TABLE[mode]
     return {
         "spawn_interval": max(
             WAVE_SPAWN_INTERVAL_FLOOR,
-            ASTEROID_SPAWN_RATE_SECONDS * WAVE_SPAWN_DECAY ** (wave - 1),
+            ASTEROID_SPAWN_RATE_SECONDS
+            * WAVE_SPAWN_DECAY ** (wave - 1)
+            * cfg["spawn_interval_mult"],
         ),
-        "speed_min": ASTEROID_SPEED_MIN + WAVE_SPEED_MIN_STEP * (wave - 1),
-        "speed_max": ASTEROID_SPEED_MAX + WAVE_SPEED_MAX_STEP * (wave - 1),
+        "speed_min": int(
+            round((ASTEROID_SPEED_MIN + WAVE_SPEED_MIN_STEP * (wave - 1)) * cfg["speed_mult"])
+        ),
+        "speed_max": int(
+            round((ASTEROID_SPEED_MAX + WAVE_SPEED_MAX_STEP * (wave - 1)) * cfg["speed_mult"])
+        ),
     }
 
 
@@ -82,8 +99,9 @@ class AsteroidField(pygame.sprite.Sprite):
         return asteroid
 
     def update(self, dt):
-        # Cadence and speed band come from the wave the game is on (F3).
-        params = wave_params(self.game.wave)
+        # Cadence and speed band come from the wave the game is on (F3),
+        # scaled by the run's difficulty mode (Tier 2).
+        params = wave_params(self.game.wave, self.game.mode)
         self.spawn_timer += dt
         if self.spawn_timer > params["spawn_interval"]:
             self.spawn_timer = 0
