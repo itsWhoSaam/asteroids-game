@@ -28,7 +28,7 @@ from comicfx import Burst, build_background_layers, burst_word, spawn_burst
 from economy import Economy
 from drones import DroneBay, OfflineBanner, drone_dps
 from game import Game
-from hud import WaveBanner, draw_game_over, draw_hud, hud_font, points_for
+from hud import WaveBanner, draw_game_over, draw_hud, draw_pause, hud_font, points_for
 from logger import log_state, log_event
 from particles import Particle, Shake, burst
 from player import Player
@@ -124,6 +124,38 @@ def maybe_advance_wave(game, field, banner):
     field.start_wave()  # fresh spawn clock and populated guard for the new wave
     banner.show(game.wave)
     log_event("wave_started", wave=game.wave)
+
+
+def update_world(updatable, drones, asteroids, shots, player1, game, powerups,
+                 shake, field, banner, economy, dt):
+    """One simulation step: every per-frame update, frozen whole while paused.
+
+    The pause flag is the entire gate (Tier 1): a frozen frame ticks nothing
+    — sprites, drone turrets, the collision sweep, the wave clock, the
+    banner and shake, bought-powerup durations — so nothing ages, dies, or
+    mints while the overlay is up. The event pump and the render stay live,
+    so mute, resume, restart, and quit all still answer. main() also gates
+    its destruction-diff poll and autosave on the same flag.
+    """
+    if game.paused:
+        return
+    updatable.update(dt)
+    # player1.update(dt)
+
+    # Drone turrets fire real shots into the same pipeline (drones PR):
+    # the sweep below and the destruction diff treat them exactly like
+    # the player's own — one destruction path pays every source.
+    drones.update(dt, player1, asteroids, shots)
+
+    handle_collisions(asteroids, shots, player1, game, powerups, shake)
+    maybe_advance_wave(game, field, banner)
+    banner.update(dt)
+    shake.update(dt)  # F5: decay toward still before the frame is blitted
+
+    # Bought powerups tick on the dt-timer pattern: expire effects,
+    # then publish the chrono scale the whole field reads this frame.
+    economy.tick_powerups(dt)
+    Asteroid.speed_scale = economy.chrono_scale()
 
 
 class _ClickPoint:
@@ -367,9 +399,18 @@ def main():
                 # the level — same seam as the M branch above.
                 direction = 1 if event.key == pygame.K_RIGHTBRACKET else -1
                 sound.set_volume(game.step_volume(direction))
-            if event.type == pygame.KEYDOWN and game.state == "game_over":
-                # R restarts, Q quits (engagement F2). Kept in this event-pump
-                # block; later features add their input alongside it.
+            if (event.type == pygame.KEYDOWN
+                    and event.key in (pygame.K_p, pygame.K_ESCAPE)):
+                # Tier 1 pause: P or Esc freezes a live run and shows the
+                # overlay. Game over owns its own screen — toggle_pause
+                # refuses there — and mute above stays live while frozen.
+                game.toggle_pause()
+            if event.type == pygame.KEYDOWN and (
+                    game.state == "game_over" or game.paused):
+                # R restarts, Q quits (engagement F2). The pause overlay
+                # promises the same two keys while frozen (Tier 1 pause):
+                # restart unpauses through Game.restart, and quit saves
+                # exactly like the game-over path.
                 if event.key == pygame.K_r:
                     # A cleared field is not player destruction: flag every
                     # rock as a cull so the diff poll never mints for restart.
@@ -388,9 +429,11 @@ def main():
                     economy.save()
                     pygame.quit()
                     return
-            if event.type == pygame.KEYDOWN:
+            if event.type == pygame.KEYDOWN and not game.paused:
                 # Shop keys 1–4 (idle shop): additive beside F2's R/Q —
                 # different keys, so neither branch shadows the other.
+                # A frozen run answers nothing but the overlay keys (and M
+                # above): ledger spends and nukes must not fire mid-pause.
                 purchase = shop.handle_key(event.key)
                 if purchase is not None:
                     x, y = shop.cell_center(purchase.name)
@@ -419,46 +462,34 @@ def main():
                         label=f"{POWERUPS[powerup]['title'].upper()}!",
                         color=POWERUP_ACTIVE_COLOR,
                     )
-            if event.type == pygame.MOUSEBUTTONDOWN:
+            if event.type == pygame.MOUSEBUTTONDOWN and not game.paused:
                 # Idle core: a click chips the rock under the cursor. take_chip
                 # routes any kill through split(), so every destruction source
                 # shares one downstream mint path (the group diff below).
+                # Paused frames chip nothing — world mutations hold.
                 target = asteroid_at(asteroids, event.pos)
                 if target is not None:
                     target.take_chip(click_damage(shop, economy))
 
         ms = game_clk.tick(60)
         dt = compute_dt(ms)
-        updatable.update(dt)
-        # player1.update(dt)
+        update_world(updatable, drones, asteroids, shots, player1, game,
+                     powerups, shake, asteroid_field, banner, economy, dt)
 
-        # Drone turrets fire real shots into the same pipeline (drones PR):
-        # the sweep below and the destruction diff treat them exactly like
-        # the player's own — one destruction path pays every source.
-        drones.update(dt, player1, asteroids, shots)
+        if not game.paused:
+            # Destruction → credits: diff this frame's field against the
+            # last, mint once per wreck, float a '+N' over the wreck.
+            # Frozen frames change no groups, so the poll holds too.
+            for wreck in destroyed_asteroids(prev_asteroids, asteroids):
+                payout = economy.mint(wreck.radius)
+                log_event("credit_minted", amount=payout)
+                FloatingText(wreck.position.x, wreck.position.y, payout)
+            prev_asteroids = set(asteroids)
 
-        handle_collisions(asteroids, shots, player1, game, powerups, shake)
-        maybe_advance_wave(game, asteroid_field, banner)
-        banner.update(dt)
-        shake.update(dt)  # F5: decay toward still before the frame is blitted
-
-        # Bought powerups tick on the dt-timer pattern: expire effects,
-        # then publish the chrono scale the whole field reads this frame.
-        economy.tick_powerups(dt)
-        Asteroid.speed_scale = economy.chrono_scale()
-
-        # Destruction → credits: diff this frame's field against the last,
-        # mint once per wreck, float a '+N' over the wreck.
-        for wreck in destroyed_asteroids(prev_asteroids, asteroids):
-            payout = economy.mint(wreck.radius)
-            log_event("credit_minted", amount=payout)
-            FloatingText(wreck.position.x, wreck.position.y, payout)
-        prev_asteroids = set(asteroids)
-
-        autosave_timer += dt
-        if autosave_timer >= IDLE_AUTOSAVE_SECONDS:
-            autosave_timer = 0.0
-            economy.save()
+            autosave_timer += dt
+            if autosave_timer >= IDLE_AUTOSAVE_SECONDS:
+                autosave_timer = 0.0
+                economy.save()
 
         # V4: three explicit passes into the world, then the screen-level
         # steps — the world blit at the shaken offset (the draw origin
@@ -467,13 +498,16 @@ def main():
         render_world(screen, world, background, entities, fx, shake.offset(),
                      game)
         draw_credits(screen, economy.credits)
-        offline_banner.update(dt)
+        if not game.paused:
+            offline_banner.update(dt)  # a frozen frame fades no UI timers
         offline_banner.draw(screen)
         drones.draw(screen, player1)
         shop.draw_panel(screen)
         shop.draw_powerups(screen)
         if game.state == "game_over":
             draw_game_over(screen, game.score, new_high=game.new_high)
+        elif game.paused:
+            draw_pause(screen)  # the frozen world dims under the prompt
         banner.draw(screen)  # on top: the WAVE n flash overlays everything
 
         pygame.display.flip()
