@@ -91,13 +91,16 @@ def test_drop_chance_boundary():
 
 def test_pick_type_covers_all_types_under_a_seeded_stream():
     """Type selection is pure in the roll: a seeded random stream maps onto
-    all three types and every roll lands on a real one."""
+    all four types and every roll lands on a real one. MAGNET appends at
+    the pool's end, so the original three keep their roll bands."""
     random.seed(1234)
     rolls = [random.random() for _ in range(300)]
     assert {pick_type(roll) for roll in rolls} == set(PowerUpType)
     assert pick_type(0.0) is PowerUpType.SHIELD
-    assert pick_type(0.999) is PowerUpType.TRIPLE
-    assert pick_type(1.0) is PowerUpType.TRIPLE  # clamped, never IndexError
+    assert pick_type(0.749) is PowerUpType.TRIPLE  # the old bands held...
+    assert pick_type(0.75) is PowerUpType.MAGNET   # ...the fourth is appended
+    assert pick_type(0.999) is PowerUpType.MAGNET
+    assert pick_type(1.0) is PowerUpType.MAGNET  # clamped, never IndexError
 
 
 # --- Effects: apply, expire, magnitudes -------------------------------------
@@ -254,8 +257,9 @@ def test_destroyed_medium_rock_spawns_a_pickup_at_the_death_site(tmp_path, monke
     game = make_game(tmp_path, player, asteroids, shots, powerups)
     Asteroid(640, 360, ASTEROID_MIN_RADIUS * 2)  # medium: eligible
     Shot(640, 360)
-    # two rolls in the sweep: 0.0 drops the pickup, 0.5 picks the second type
-    rolls = iter([0.0, 0.5])
+    # two rolls in the sweep: 0.0 drops the pickup, 0.3 picks the second type
+    # (RAPID) out of the four-way pool — 0.5 now lands in MAGNET's band
+    rolls = iter([0.0, 0.3])
     monkeypatch.setattr(random, "random", lambda: next(rolls))
 
     handle_collisions(asteroids, shots, player, game, powerups)

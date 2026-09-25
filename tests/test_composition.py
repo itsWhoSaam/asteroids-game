@@ -210,7 +210,8 @@ HUD off raw renders onto the cache)."""
     pickups = [
         PowerUp(200 + i * 100, 200, kind)
         for i, kind in enumerate(
-            (PowerUpType.SHIELD, PowerUpType.RAPID, PowerUpType.TRIPLE)
+            (PowerUpType.SHIELD, PowerUpType.RAPID, PowerUpType.TRIPLE,
+             PowerUpType.MAGNET)
         )
     ]
 
