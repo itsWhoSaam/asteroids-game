@@ -682,3 +682,26 @@ POWERUP_DURATION_S["magnet"] = 8.0
 POWERUP_MAGNET_RADIUS = 280.0        # px — the attraction band around the ship
 POWERUP_MAGNET_ACCELERATION = 300.0  # px/s² at the ship, easing to 0 at the rim
 POWERUP_MAGNET_MAX_SPEED = 420.0     # px/s cap on a body while it is under the pull
+
+
+# --- Ambient music loop (Tier 3) ----------------------------------------------
+# A synthesized low bed under gameplay: a slow bass heartbeat with sparse
+# detuned pad tones swelling above it. Built once at startup from stdlib
+# array/math (the SFX builder style), looped through a pygame.mixer.Sound —
+# no binary assets, no mixer-music file. The loop is seamless by
+# construction: MUSIC_LOOP_SECONDS is the loop's fundamental and every
+# frequency below is an integer multiple of it (1 / MUSIC_LOOP_SECONDS), so
+# each voice completes whole cycles across the buffer and the wrap lands on
+# identical phase — no click at the seam. The envelopes are periodic over
+# the same span. The bed rides the master volume and mute through the SFX
+# seams and degrades to silence with them on any mixer failure.
+
+MUSIC_LOOP_SECONDS = 8.0        # the loop's fundamental: 0.125 Hz
+MUSIC_BASS_HZ = 55.0            # A1 — 440 whole cycles across the loop
+MUSIC_BASS_BEAT_S = 2.0         # one heartbeat every 2 s → 4 per loop
+MUSIC_BASS_VOLUME = 0.5         # the pulse's float amplitude
+MUSIC_PAD_A_HZ = 110.0          # A2 — the pad root
+MUSIC_PAD_A_DETUNE_HZ = 110.25  # +4 cents twin: a slow 0.25 Hz beat against the root
+MUSIC_PAD_B_HZ = 165.0          # E3 — the fifth above, trading places with the root
+MUSIC_PAD_VOLUME = 0.16         # the pads stay under the bass
+MUSIC_GAIN = 0.35               # the bed's own drop, before the master level

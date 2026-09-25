@@ -78,6 +78,15 @@ from constants import (
     SFX_WAVE_CLEAR_ARPEGGIO,
     SFX_WAVE_CLEAR_NOTE_S,
     SFX_WAVE_CLEAR_VOLUME,
+    MUSIC_BASS_BEAT_S,
+    MUSIC_BASS_HZ,
+    MUSIC_BASS_VOLUME,
+    MUSIC_GAIN,
+    MUSIC_LOOP_SECONDS,
+    MUSIC_PAD_A_DETUNE_HZ,
+    MUSIC_PAD_A_HZ,
+    MUSIC_PAD_B_HZ,
+    MUSIC_PAD_VOLUME,
     VOLUME_DEFAULT,
     VOLUME_MAX,
     VOLUME_MIN,
@@ -89,6 +98,12 @@ _sounds = {}
 _muted = False
 _volume = VOLUME_DEFAULT  # master level 0–100; playback scales by it
 
+# The ambient music loop (Tier 3): built once by init(), None whenever the
+# mixer is unavailable — the same degrade contract as the SFX table.
+_music = None
+_music_on = False       # the gameplay gate: the run wants the loop audible
+_music_playing = False  # the loop is actually on the mixer right now
+
 
 def init():
     """Bring the mixer up and synthesize the SFX table once.
@@ -97,7 +112,7 @@ def init():
     nothing. The failure surfaces once as a warning instead of being
     swallowed silently or crashing the run.
     """
-    global _sounds
+    global _sounds, _music
     if _sounds:
         return
     try:
@@ -123,8 +138,13 @@ def init():
             SFX_DENIED: build_denied(),
             SFX_WAVE_CLEAR: build_wave_clear(),
         }
+        # The loop is the expensive render (~0.4 s): it builds once per
+        # process — a rebuilt SFX table keeps the already-built loop.
+        if _music is None:
+            _music = build_ambient_loop()
     except Exception as exc:
         _sounds = {}
+        _music = None
         print(
             f"[sound] warning: mixer unavailable, running silent: {exc}",
             file=sys.stderr,
@@ -135,6 +155,7 @@ def set_muted(muted):
     """Playback suppression switch — the game keeps simulating either way."""
     global _muted
     _muted = bool(muted)
+    _refresh_music()  # the loop ducking in and out is part of the same switch
 
 
 def is_muted():
@@ -150,6 +171,7 @@ def set_volume(volume):
     """
     global _volume
     _volume = clamp_volume(volume)
+    _refresh_music()  # a live loop re-scales with the step immediately
 
 
 def get_volume():
@@ -205,6 +227,56 @@ def _degrade(exc):
             file=sys.stderr,
         )
         _sounds = {}
+
+
+# --- ambient music loop (Tier 3) ----------------------------------------------
+
+
+def music_gain(volume):
+    """The loop's mixer gain at a master level: the SFX scale dropped by the
+    bed's own MUSIC_GAIN so the music sits under every cue. Pure."""
+    return master_gain(volume) * MUSIC_GAIN
+
+
+def update_music(active):
+    """The per-frame gameplay gate for the ambient loop (idempotent).
+
+    True — a live run — keeps the loop audible; False (the menu, the
+    game-over screen) stops it. A paused run is still live, so the bed
+    keeps breathing under the overlay — M stays live there too. Mute and
+    the master level reach the loop through the same setters as the SFX,
+    so this call only has to carry the run/overlay boundary.
+    """
+    global _music_on
+    _music_on = bool(active)
+    _refresh_music()
+
+
+def _refresh_music():
+    """Reconcile the loop with the current wants: start it when gameplay
+    wants audio and the mixer is not already looping it, stop it when it
+    should be silent, and re-apply the gain so volume steps land live.
+    Any mixer failure degrades like the SFX — one warning, then silence
+    for the rest of the run."""
+    global _music, _music_playing
+    if _music is None:
+        return
+    try:
+        if _music_on and not _muted:
+            _music.set_volume(music_gain(_volume))
+            if not _music_playing:
+                _music.play(loops=-1)
+                _music_playing = True
+        elif _music_playing:
+            _music.stop()
+            _music_playing = False
+    except Exception as exc:
+        print(
+            f"[sound] warning: music failed, going silent: {exc}",
+            file=sys.stderr,
+        )
+        _music = None
+        _music_playing = False
 
 
 # --- synthesis ---------------------------------------------------------------
@@ -464,4 +536,35 @@ def build_drone_fire():
         )
 
     return _make_sound(_render(SFX_DRONE_FIRE_DURATION, wave))
+
+
+def build_ambient_loop():
+    """The gameplay bed: a slow bass heartbeat under sparse, detuned pads.
+
+    Seamless by construction — every frequency below is an integer multiple
+    of the loop fundamental (1 / MUSIC_LOOP_SECONDS) and every envelope is
+    periodic over the same span, so the wrap lands on identical phase and
+    looping never clicks. Deterministic like the cue builders: pure math.
+    """
+
+    def wave(t, progress):
+        # The heartbeat: one exp-decaying pulse per beat over an A1 sine.
+        beat = math.exp(-3.5 * (t % MUSIC_BASS_BEAT_S) / MUSIC_BASS_BEAT_S)
+        bass = (
+            math.sin(2 * math.pi * MUSIC_BASS_HZ * t) * beat * MUSIC_BASS_VOLUME
+        )
+        # The pads trade places once per loop — (1 - cos) / 2 swells 0→1→0
+        # and its mirror does the opposite — so the bed breathes rather
+        # than drones: the detuned A2 pair swells in while the fifth (E3)
+        # swells out.
+        swell = (1.0 - math.cos(2 * math.pi * progress)) / 2
+        pad_root = (
+            math.sin(2 * math.pi * MUSIC_PAD_A_HZ * t)
+            + math.sin(2 * math.pi * MUSIC_PAD_A_DETUNE_HZ * t)
+        ) / 2
+        pad_fifth = math.sin(2 * math.pi * MUSIC_PAD_B_HZ * t)
+        pads = (pad_root * swell + pad_fifth * (1.0 - swell)) * MUSIC_PAD_VOLUME
+        return bass + pads
+
+    return _make_sound(_render(MUSIC_LOOP_SECONDS, wave))
 

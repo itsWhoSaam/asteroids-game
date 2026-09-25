@@ -1051,6 +1051,11 @@ def main():
 
         ms = game_clk.tick(60)
         dt = compute_dt(ms)
+        # Ambient music (Tier 3): the loop follows the run — audible during
+        # gameplay (a paused run is still live), silent on the menu and the
+        # game-over screen. Mute and the master level reach it through the
+        # same seams as the SFX; this call only carries the boundary.
+        sound.update_music(game.state == "playing")
         update_world(updatable, drones, asteroids, shots, player1, game,
                      powerups, shake, asteroid_field, banner, economy, dt,
                      warning, floaters=floaters,
