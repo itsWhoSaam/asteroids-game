@@ -165,6 +165,19 @@ on reveal). Timed effects last 8 s; tuning lives at the end of
 `constants.py` (`POWERUP_*`, including `POWERUP_MAGNET_*`, and the
 `INSANITY` block).
 
+## Ambient music
+
+A low synthesized loop breathes under gameplay: a 55 Hz bass heartbeat
+every 2 s under sparse detuned pad tones (an A2 pair beating at 0.25 Hz
+and its fifth) that trade places across the loop. It's built at startup
+from stdlib `array`/`math` — the same procedural builder as the SFX, no
+binary assets — and loops seamlessly: every voice completes whole cycles
+across the 8 s buffer, so the wrap never clicks. It plays only during a
+live run (the menu and the game-over screen stay silent — a paused run
+keeps breathing), and it follows the same audio seams as the SFX:
+`[` / `]` scale it, `M` silences it, and any mixer failure degrades it
+to a no-op. Tuning lives at the end of `constants.py` (`MUSIC_*`).
+
 ## Persistence
 
 Everything rides in one shared file, `game_save.json` (written to the
@@ -176,6 +189,7 @@ working directory):
   bests (a mode's key appears the first time that mode scores)
 - `difficulty` — the selected mode for the next run
 - `muted` — sound preference
+- `volume` — master level 0–100 (`[` / `]` step it)
 - `idle_credits`, `idle_levels`, `idle_powerup_uses`, `idle_last_seen` —
   the idle layer's ledger
 
