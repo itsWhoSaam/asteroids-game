@@ -178,6 +178,16 @@ keeps breathing), and it follows the same audio seams as the SFX:
 `[` / `]` scale it, `M` silences it, and any mixer failure degrades it
 to a no-op. Tuning lives at the end of `constants.py` (`MUSIC_*`).
 
+## Near-miss graze bonus
+
+Dodging pays: a rock crossing the **graze band** — outside the collision
+radius, inside collision + 24 px — while both bodies move at a meaningful
+speed awards **25 points** with a white `+25 pts` popup at the near-miss
+site. A per-pair cooldown (3 s) stops hover-farming, and the bonus never
+triggers while the ship is invulnerable (the respawn blink and the dash
+i-frames ride one timer). Score only — no credits, no combo. Tuning
+lives at the end of `constants.py` (`GRAZE_*`).
+
 ## Persistence
 
 Everything rides in one shared file, `game_save.json` (written to the

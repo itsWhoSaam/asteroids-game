@@ -13,6 +13,10 @@ from constants import (
     FLOAT_FONT_SIZE,
     FLOAT_LIFETIME_SECONDS,
     FLOAT_RISE_SPEED,
+    GRAZE_BAND_PX,
+    GRAZE_COOLDOWN_S,
+    GRAZE_MIN_SPEED,
+    GRAZE_POINTS,
     HIT_STOP_BASE_S,
     HIT_STOP_MULTI_SCALE,
     HUD_CREDITS_ROW,
@@ -245,6 +249,41 @@ def handle_collisions(asteroids, shots, player1, game, powerups, shake=None,
     # Insanity core: the frame's shot kills buy a freeze — one rock is a
     # base beat, several dying in one sweep is the multi beat.
     freeze_for_destructions(hit_stop, shot_kills)
+
+    # Near-miss graze bonus (Tier 3): a fast close pass — outside the
+    # collision radius, inside the graze band — pays a small score bonus
+    # with its own popup. Score only: nothing dies, so the destruction
+    # diff never mints for a graze and the credit ledger is untouched by
+    # construction. The gates live in the pure graze_pays; the sweep
+    # supplies the live pair's geometry, speeds, and cooldown bookkeeping.
+    # The playing gate mirrors the hit branch above (game over pays
+    # nothing); invulnerability is graze_pays' own live argument, so the
+    # respawn blink and dash i-frames gate each pair without a second
+    # read of the timer.
+    if game.state == "playing":
+        for asteroid in asteroids:
+            if not asteroid.alive():
+                continue
+            if not graze_pays(
+                player1.position.distance_to(asteroid.position),
+                player1.radius + asteroid.radius,
+                player1.velocity.length(),
+                asteroid.velocity.length(),
+                invulnerable=player1.invulnerable,
+                cooldown_left=game.graze_cooldowns.get(asteroid, 0.0) - game.now,
+            ):
+                continue
+            game.graze_cooldowns[asteroid] = game.now + GRAZE_COOLDOWN_S
+            game.add_score(GRAZE_POINTS)
+            log_event("graze_bonus", points=GRAZE_POINTS)
+            style = popup_style("points", GRAZE_POINTS)
+            FloatingText(
+                asteroid.position.x,
+                asteroid.position.y - SCORE_POPUP_OFFSET_Y,
+                GRAZE_POINTS,
+                label=style.label,
+                color=style.color,
+            )
 
     # Insanity threats: the four hostile branches, all guarded by the same
     # playing/invulnerable gates as the asteroid↔player branch above.
@@ -771,6 +810,31 @@ def popup_style(kind, amount):
     if kind == "points":
         return PopupStyle(f"+{int(amount)} pts", SCORE_COLOR, magnetic=False)
     return PopupStyle(float_label(amount), FLOAT_COLOR, magnetic=True)
+
+
+def graze_pays(distance, collision_distance, player_speed, asteroid_speed,
+               invulnerable=False, cooldown_left=0.0):
+    """Pure (graze bonus): does this close pass pay?
+
+    One gate per line, in the order a dodger would tell the story. The band
+    sits strictly outside the collision radius — a touching rock is a hit,
+    never a graze — and inside collision + GRAZE_BAND_PX, outer boundary
+    inclusive, so the width reads the same for every rock size. Both bodies
+    must move at a meaningful speed (a parked ship or a near-still rock is
+    no dodge), the ship must be vulnerable — the respawn blink and the dash
+    i-frames ride one timer, so neither can farm the band — and the pair's
+    cooldown must have expired (ready-time keyed on the live rock; the ship
+    is the pair's other half).
+    """
+    if invulnerable:
+        return False
+    if cooldown_left > 0.0:
+        return False
+    if player_speed < GRAZE_MIN_SPEED or asteroid_speed < GRAZE_MIN_SPEED:
+        return False
+    if distance <= collision_distance:
+        return False
+    return distance <= collision_distance + GRAZE_BAND_PX
 
 
 def click_damage(shop, economy):
