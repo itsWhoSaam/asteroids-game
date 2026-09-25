@@ -271,6 +271,15 @@ def draw_pause(screen):
         screen.blit(surface, rect)
 
 
+def wave_banner_text(wave, milestone_credits=None):
+    """The banner line for a wave: plain 'WAVE n', or the milestone
+    announcement when the wave pays one (Tier 1 milestone rewards). Pure:
+    the text resolves from the wave number and the grant alone."""
+    if milestone_credits is None:
+        return f"WAVE {wave}"
+    return f"MILESTONE WAVE {wave} - SHIELD +{int(milestone_credits)} CR"
+
+
 class WaveBanner:
     """Centered 'WAVE n' flash (engagement F3).
 
@@ -285,13 +294,21 @@ class WaveBanner:
         self.duration = duration
         self.timer = 0.0
         self.wave = 1
+        self._text = wave_banner_text(1)
         self._surface = None  # rendered lazily per wave, on the next draw
 
-    def show(self, wave):
-        """Arm the flash for a wave: 1 at game start/restart, n+1 on advance."""
+    @property
+    def text(self):
+        """The armed banner line — 'WAVE n' or the milestone announcement."""
+        return self._text
+
+    def show(self, wave, milestone_credits=None):
+        """Arm the flash for a wave: 1 at game start/restart, n+1 on advance.
+        A milestone wave (Tier 1 rewards) announces its grant in the text."""
         self.wave = wave
         self.timer = self.duration
-        self._surface = None  # the wave number changed: re-render on next draw
+        self._text = wave_banner_text(wave, milestone_credits)
+        self._surface = None  # the text changed: re-render on next draw
 
     def update(self, dt):
         if self.timer > 0:
@@ -305,7 +322,7 @@ class WaveBanner:
         if not self.visible:
             return
         if self._surface is None:
-            self._surface = game_over_font().render(f"WAVE {self.wave}", True, HUD_COLOR)
+            self._surface = game_over_font().render(self._text, True, HUD_COLOR)
         self._surface.set_alpha(int(255 * self.timer / self.duration))
         rect = self._surface.get_rect(center=(SCREEN_WIDTH / 2, SCREEN_HEIGHT / 3))
         screen.blit(self._surface, rect)

@@ -20,11 +20,12 @@ Headless run (sandbox/CI — no display needed):
 SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy uv run main.py
 ```
 
-The game loops at 60 FPS until the window QUIT event (or Q at the game-over screen). A player-asteroid collision costs one of three lives — the ship respawns centered with a 2s invulnerability blink — and at zero lives a game-over overlay appears (R restarts, Q quits). Destroyed non-small asteroids have a 15% chance to drop a timed pickup: SHIELD absorbs one hit (ring on the ship), RAPID cuts the shoot cooldown ×0.4, TRIPLE fires a three-way spread — each lasts 8s (R-free retuning lives in `constants.py`). Sound effects are synthesized procedurally at startup (no binary assets) — shoot, three explosion pitches by asteroid size, pickup, game over — and `M` toggles mute (persisted in `game_save.json`; a MUTED indicator shows top-right while muted). `P` or `Esc` pauses a live run: a paused flag gates every world update and a dimmed PAUSED overlay shows resume (P) / restart (R) / quit (Q); mute stays live while paused and the game-over screen is unaffected. Kill with timeout/interrupt for headless runs.
+The game loops at 60 FPS until the window QUIT event (or Q at the game-over screen). A player-asteroid collision costs one of three lives — the ship respawns centered with a 2s invulnerability blink — and at zero lives a game-over overlay appears (R restarts, Q quits). Destroyed non-small asteroids have a 15% chance to drop a timed pickup: SHIELD absorbs one hit (ring on the ship), RAPID cuts the shoot cooldown ×0.4, TRIPLE fires a three-way spread — each lasts 8s (R-free retuning lives in `constants.py`). Sound effects are synthesized procedurally at startup (no binary assets) — shoot, three explosion pitches by asteroid size, pickup, game over — and `M` toggles mute (persisted in `game_save.json`; a MUTED indicator shows top-right while muted). `P` or `Esc` pauses a live run: a paused flag gates every world update and a dimmed PAUSED overlay shows resume (P) / restart (R) / quit (Q); mute stays live while paused and the game-over screen is unaffected. Every fifth cleared wave pays a milestone — a shield charge plus a flat credit bonus — announced in the wave banner text (the grant routes through `maybe_advance_wave` with optional player/economy seams and honors the `spawned_this_wave` guard). Kill with timeout/interrupt for headless runs.
 
 ## Local Verification
 
 - No linter or typechecker is configured; pytest is the test suite (dev dependency in `pyproject.toml`): `uv run pytest`.
+
 - Smoke checks that work everywhere:
   - `uv run python -m compileall -q .` — all modules compile.
   - Headless bounded run (see above); the built-in logger writes `game_state.jsonl` (per-second sprite snapshots) and `game_events.jsonl` (`asteroid_shot`, `player_hit`, plus milestone events `high_score_beaten`, `game_over`, `restart`, `wave_started`, `powerup_spawned`, `powerup_collected`). Verify the state log grows and asteroids spawn.
@@ -36,6 +37,7 @@ The game loops at 60 FPS until the window QUIT event (or Q at the game-over scre
   - `uv run python .obvious/evidence/proof_f6.py` — F6 evidence: unmuted/muted HUD pair (MUTED indicator top-right after a simulated M press) to `/tmp/obv-evidence/`, with mixer format, SFX table, and persisted save asserted.
   - `uv run python .obvious/evidence/proof_v1.py` — visual V1 evidence: comic-palette before/after PNGs (the before frame is a palette regrade back to white-on-black) to `/tmp/obv-evidence/`, with paper/ship/asteroid pixel self-checks asserted.
   - `uv run python .obvious/evidence/proof_v4.py` — visual V4 evidence: burst frame + lifecycle strip PNGs to `/tmp/obv-evidence/`, with word-tier, 4-text cap, fx-over-entities z-order, cache-flatness, and composite-budget self-checks asserted.
+  - `uv run python .obvious/evidence/proof_milestone.py` — milestone-rewards evidence: WAVE 4 plain flash (no grant) vs the MILESTONE WAVE 5 - SHIELD +500 CR banner with the shield ring, plus the ring persisting after the flash fades, to `/tmp/obv-evidence/`, with banner text, stocked charge, and ledger bonus asserted.
   - `uv run python -m tests._balance_sim` — the ten-minute balance simulation of the main loop (income vs field density per minute, purchase curve, nuke scenario); `tests/test_balance.py` pins the fast gates.
 
 ## Codebase Map
@@ -57,7 +59,7 @@ Flat, single-app repo — all source at root (depth ≤ 2, no sub-apps):
 | `particles.py` | `Particle` debris + `Shake` — pure `burst_count` sizing, `burst()` spawner wired at the sweep's destruction site and in `Game.player_hit`; shake decays exponentially and offsets the draw origin only (engagement F5) |
 | `shot.py` | `Shot` — player bullets |
 | `sound.py` | Procedural SFX — stdlib `array`/`math` envelopes in `pygame.mixer.Sound`, built at startup; `play()`/`play_explosion()` degrade to a silent no-op on any mixer failure; mute state set via `set_muted` (engagement F6) |
-| `hud.py` | `Score` — run score + persistent high score (`game_save.json`), `points_for()` size table, `draw_hud()` overlay, `draw_game_over()` overlay, `WaveBanner` flash (engagement F3) |
+| `hud.py` | `Score` — run score + persistent high score (`game_save.json`), `points_for()` size table, `draw_hud()` overlay, `draw_game_over()` overlay, `WaveBanner` flash (engagement F3) with the milestone-announcement text variant (Tier 1) |
 | `logger.py` | `log_state()` / `log_event()` — JSONL state & event logging to repo root |
 | `game_events.jsonl` | Committed event log from a prior run (runtime artifact) |
 | `README.md` | Controls, idle loop, persistence, and run/test docs |
