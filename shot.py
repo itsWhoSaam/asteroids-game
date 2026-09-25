@@ -7,6 +7,10 @@ from constants import ASTEROID_MAX_RADIUS, LINE_WIDTH, PALETTE, SHOT_RADIUS
 class Shot(CircleShape):
     def __init__(self, x, y):
         super().__init__(x, y, SHOT_RADIUS)
+        # Run stats (run-stats PR): turret shots tag themselves at the fire
+        # site (drones.py) so the sweep's hit counter reads the player's
+        # accuracy, not the drones' — the bullets fly the same pipeline.
+        self.from_drone = False
 
     def draw(self, screen):
         # Inked comic tracer (V2): same stack, scaled to the tiny radius.

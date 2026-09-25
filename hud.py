@@ -48,6 +48,9 @@ from constants import (
     SCORE_SMALL,
     SCREEN_HEIGHT,
     SCREEN_WIDTH,
+    STATS_BLOCK_GAP,
+    STATS_FONT_SIZE,
+    STATS_LINE_STEP,
     VOLUME_DEFAULT,
     WAVE_BANNER_SECONDS,
     WAVE_BANNER_TILT_DEGREES,
@@ -432,6 +435,38 @@ def draw_game_over(screen, score, new_high=False):
         width = -(-width // 32) * 32  # ceil to the 32px bucket
         panel = panel_for(width, font.get_height() + 2 * PANEL_PAD_Y)
         center = (SCREEN_WIDTH / 2, top + (row + 0.5) * GAME_OVER_LINE_STEP)
+        screen.blit(panel, panel.get_rect(center=center))
+        screen.blit(surface, surface.get_rect(center=center))
+
+
+def stats_font():
+    """Dense font for the summary rows — the shared bold comicfx font at the
+    help list's size, so the block reads as part of the V5 panel family."""
+    return shared_font(STATS_FONT_SIZE)
+
+
+def draw_run_summary(screen, stats):
+    """The end-of-run stats block (run-stats PR): a title plus the four
+    summary rows — shots/accuracy, rocks by tier, waves survived, credits
+    earned idle-vs-click — each on its own yellow halftone caption panel,
+    the game-over treatment at the denser size.
+
+    Rows come pure from stats.summary_lines() (pinned by tests); widths
+    bucket to 32px like the game-over panels; the block seats a fixed gap
+    below the game-over overlay's worst case (three lines), above the shop
+    panel's bottom edge. Only the game-over screen calls it — paused and
+    live frames never see it."""
+    lines = ["RUN SUMMARY"] + stats.summary_lines()
+    font = stats_font()
+    top = SCREEN_HEIGHT / 2 + 1.5 * GAME_OVER_LINE_STEP + STATS_BLOCK_GAP
+    for row, text in enumerate(lines):
+        surface = cached_text(text, PALETTE["hud_ink"], STATS_FONT_SIZE)
+        width = -(-(font.size(text)[0] + 2 * PANEL_PAD_X) // 32) * 32
+        panel = panel_for(width, font.get_height() + 2 * PANEL_PAD_Y)
+        center = (
+            SCREEN_WIDTH / 2,
+            top + row * STATS_LINE_STEP + font.get_height() / 2,
+        )
         screen.blit(panel, panel.get_rect(center=center))
         screen.blit(surface, surface.get_rect(center=center))
 

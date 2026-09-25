@@ -92,6 +92,7 @@ class DroneTurret:
         muzzle = self.muzzle(player)
         shot = Shot(muzzle.x, muzzle.y)
         shot.velocity = self.aim(player, asteroids) * DRONE_SHOT_SPEED
+        shot.from_drone = True  # run stats: turret fire, not the player's trigger
         sound.play(sound.SFX_DRONE_FIRE)  # extra SFX: the turret's own pew
 
     def update(self, dt, player, asteroids, shots):

@@ -13,6 +13,7 @@ from constants import (
     LINE_WIDTH,
     PALETTE,
 )
+from stats import SOURCE_CLICK, SOURCE_IDLE
 
 # Size-tier order for the palette lookup: tier 1 (small) → 3 (large).
 ASTEROID_COLOR_KEYS = ("asteroid_s", "asteroid_m", "asteroid_l")
@@ -76,6 +77,11 @@ class Asteroid(CircleShape):
         # cracks stick to its body; deepening reveals more of the same web.
         self.crack_seed = random.randrange(2**32)
         self.despawned = False
+        # Run stats (run-stats PR): the kill source the mint poll reports —
+        # take_chip flips it to "click" when a click kills; every other
+        # kill site resets it to the idle default, so a rock chipped partway
+        # and finished by a shot attributes to the shot.
+        self.killed_by = SOURCE_IDLE
 
     @property
     def chip_threshold(self):
@@ -93,6 +99,7 @@ class Asteroid(CircleShape):
             return False
         self.chip_damage += amount
         if self.chip_damage >= self.chip_threshold:
+            self.killed_by = SOURCE_CLICK  # run stats: the click killed it
             self.split()
             return True
         return False

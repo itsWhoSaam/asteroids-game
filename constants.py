@@ -407,3 +407,14 @@ SCORE_POPUP_OFFSET_Y = 24.0       # px head start above the credit float's line
 # last stage lands a click or two before the split. Crossing is inclusive
 # (>=): a rock AT the mark shows the next stage.
 CHIP_CRACK_FRACTIONS = (0.25, 0.50, 0.75)
+
+# --- Run stats + end-of-run summary (run-stats PR) ---------------------------
+# Per-run counters — shots fired/hit, rocks destroyed by size tier, waves
+# survived, credits earned split idle-vs-click — reported by a summary block
+# under the game-over prompt. Run-scoped only: never persisted, so no save
+# key and nothing for the restart hooks to preserve. The block renders as
+# caption panels in the V5 family, seated below the game-over overlay's
+# worst case (three lines) and above the shop panel's bottom edge.
+STATS_FONT_SIZE = 24        # dense summary rows — the help list's size
+STATS_LINE_STEP = 30        # px between summary rows
+STATS_BLOCK_GAP = 36        # px between the game-over block and the summary
