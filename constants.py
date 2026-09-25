@@ -459,3 +459,23 @@ DIFFICULTY_SELECT_KEYS = {
 DIFFICULTY_KEY_LABELS = {
     mode: chr(key) for key, mode in DIFFICULTY_SELECT_KEYS.items()
 }
+
+# --- Achievements + toasts (Tier 2) -------------------------------------------
+# Five lifetime awards — first nuke used, wave 5 reached, 10,000 points in one
+# run, first drone deployed, high score beaten — evaluated by a pure function
+# over a per-frame EventStats snapshot (achievements.py). The unlocked ids
+# persist in game_save.json as the ``achievements`` key through the
+# read-modify-write save merge, so idle_* and high_score ride along untouched.
+# Each unlock queues a toast: one at a time, FIFO, expiring on the dt-timer
+# template, seated in the free top-center seat — the HUD panel owns the top
+# left, the audio tags the top right, and the wave banner the screen center.
+# Rendering stays headless-safe: the toast is an opaque caption panel blitted
+# at an animated position (the pause-dim precedent — surface alpha untouched,
+# no per-pixel alpha). TOAST_SECONDS must exceed 2 * TOAST_SLIDE_SECONDS so a
+# seated hold exists between the mirrored slide-in and slide-out.
+ACHIEVEMENT_SCORE_THRESHOLD = 10000  # one-run points for the score award
+ACHIEVEMENT_WAVE_THRESHOLD = 5       # wave reached for the wave award
+TOAST_SECONDS = 3.0        # s a toast owns its seat, slide in+out included
+TOAST_SLIDE_SECONDS = 0.4  # s of slide-in, mirrored by the slide-out
+TOAST_SEAT_Y = 64          # px from the top edge where a seated toast rests
+TOAST_FONT_SIZE = 24       # the help list's dense size — the V5 panel family
