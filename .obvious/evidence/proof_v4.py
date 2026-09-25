@@ -219,9 +219,10 @@ def assert_text_cache_flat():
 
 def save_burst_lifecycle(background, filename):
     """One burst drawn at four ages — 0%, 15%, 50%, 90% of its life — side
-    by side: the pop-in, the hold, the fade to paper."""
+    by side: the pop-in, the hold, the fade to paper. Cells are 720px so
+    the strip meets the QA evidence minimum on its short edge."""
     ages = (0.0, 0.15, 0.5, 0.9)
-    cell = 220
+    cell = 720
     strip = pygame.Surface((cell * len(ages), cell))
     strip.fill(PALETTE["paper"])
     for i, age in enumerate(ages):
