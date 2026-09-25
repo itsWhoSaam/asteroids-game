@@ -6,6 +6,9 @@
     <title>Asteroids — web port</title>
   </head>
   <body>
+    <!-- #stage holds the canvas + status banner; #app holds the landing
+         overlay and is wiped by its hide() — they must be siblings. -->
+    <div id="stage"></div>
     <div id="app"></div>
     <script src="./index.js"></script>
   </body>

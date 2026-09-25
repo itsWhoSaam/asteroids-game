@@ -12,6 +12,19 @@ export function parseRoomCode(raw: string): string | null {
   return /^[A-Z0-9]{4}$/.test(code) ? code : null;
 }
 
+/** A fresh 4-char room code from the unambiguous alphabet — "Create
+ * room" generates one and joins it; the server creates rooms on first
+ * join (the protocol's only vocabulary is join). */
+export function newRoomCode(random: () => number = Math.random): string {
+  // No 0/O or 1/I: codes are read aloud across a room.
+  const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  let code = "";
+  for (let i = 0; i < 4; i += 1) {
+    code += alphabet[Math.floor(random() * alphabet.length)];
+  }
+  return code;
+}
+
 /** The room code in a URL's query string, or null (also null for junk). */
 export function roomFromSearch(search: string): string | null {
   const param = new URLSearchParams(search).get("room");
