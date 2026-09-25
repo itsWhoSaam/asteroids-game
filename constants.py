@@ -481,6 +481,7 @@ TOAST_SEAT_Y = 64          # px from the top edge where a seated toast rests
 TOAST_FONT_SIZE = 24       # the help list's dense size — the V5 panel family
 
 
+
 # --- Magnet powerup (Tier 3) --------------------------------------------------
 # A fourth drop in the F4 pool: for its duration the ship carries a tractor
 # field that bends nearby pullables' velocity toward it — drifting pickups
@@ -500,3 +501,34 @@ POWERUP_DURATION_S["magnet"] = 8.0
 POWERUP_MAGNET_RADIUS = 280.0        # px — the attraction band around the ship
 POWERUP_MAGNET_ACCELERATION = 300.0  # px/s² at the ship, easing to 0 at the rim
 POWERUP_MAGNET_MAX_SPEED = 420.0     # px/s cap on a body while it is under the pull
+
+
+# --- UFO saucer (Tier 3) -----------------------------------------------------
+# Every UFO_SPAWN_INTERVAL_S of live play a saucer enters from a random screen
+# edge and crosses with a sinusoidal drift, firing aimed shots at the player on
+# its own cadence. Its shots are real Shot instances tagged from_ufo — they ride
+# the ordinary sweep exactly like drone shots: they split rocks (the destruction
+# diff mints through the one economy path) and they are the only shots that can
+# reach the ship (routed through Game.player_hit, invulnerability honored). The
+# saucer itself dies to a single shot for its own points_for tier and a mint off
+# the same frame-diff poll. All timers are dt-based; every number here is a
+# playtest starting value, none structural.
+
+UFO_RADIUS = 30                     # hull radius — deliberately between the rock bands (20/40/60)
+UFO_SPEED = 120.0                   # px/s crossing speed — a full crossing takes ~11 s
+UFO_SPAWN_INTERVAL_S = 45.0         # cadence: one saucer entry every ~45 s of play
+UFO_EDGE_MARGIN = 2 * UFO_RADIUS    # px past the edge the saucer spawns at — also the depth past the edge at which a crossing counts as exited (the AsteroidField's spawn-at-the-cull-margin idiom)
+UFO_WOBBLE_AMPLITUDE = 40.0         # px of sinusoidal drift, perpendicular to travel
+UFO_WOBBLE_HZ = 0.5                 # full sine cycles per second
+UFO_FIRE_INTERVAL_S = 1.6           # s between aimed shots
+UFO_SHOT_SPEED = 320.0              # px/s — slower than the player's shots, dodgeable
+
+# Big points: its own tier in the points_for table (hud.py reads it; the
+# economy mint scales the same entry, so score and credits share one source).
+SCORE_UFO = 250
+
+# Saucer colors resolve through the palette like every entity's — the saucer
+# reads hostile red against the rock pinks and violets.
+UFO_HULL_COLOR = PALETTE["fringe_r"]
+UFO_DOME_COLOR = PALETTE["ship"]
+UFO_LIGHT_COLOR = PALETTE["shot"]

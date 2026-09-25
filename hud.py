@@ -52,11 +52,13 @@ from constants import (
     SCORE_LARGE,
     SCORE_MEDIUM,
     SCORE_SMALL,
+    SCORE_UFO,
     SCREEN_HEIGHT,
     SCREEN_WIDTH,
     STATS_BLOCK_GAP,
     STATS_FONT_SIZE,
     STATS_LINE_STEP,
+    UFO_RADIUS,
     VOLUME_DEFAULT,
     WAVE_BANNER_SECONDS,
     WAVE_BANNER_TILT_DEGREES,
@@ -86,7 +88,14 @@ def points_for(radius):
     3x and up — and smaller rocks pay more: 100 / 50 / 20. The large band
     opens at 3x because the field's biggest spawn is 3x (ASTEROID_KINDS = 3);
     the spec's 4x large anchor sits inside the same band.
+
+    UFO saucer (Tier 3): the saucer rides the same award path as a rock —
+    its radius deliberately sits between the rock bands (rocks are exact
+    multiples of ASTEROID_MIN_RADIUS; the saucer is not), so the exact
+    match is a tier of its own and never steals a rock's band.
     """
+    if radius == UFO_RADIUS:
+        return SCORE_UFO
     if radius >= ASTEROID_MIN_RADIUS * 3:
         return SCORE_LARGE
     if radius >= ASTEROID_MIN_RADIUS * 2:

@@ -56,6 +56,7 @@ from shop import Shop
 from stats import SOURCE_IDLE
 import sound
 from shot import Shot
+from ufo import UFO, UFOSpawner, destroyed_ufos
 
 
 def compute_dt(ms):
@@ -64,7 +65,8 @@ def compute_dt(ms):
     return min(ms / 1000, MAX_DT)
 
 
-def handle_collisions(asteroids, shots, player1, game, powerups, shake=None):
+def handle_collisions(asteroids, shots, player1, game, powerups, shake=None,
+                      ufos=None):
     # The sweep reports hits to the Game instead of exiting the process
     # (engagement F2): a hit costs one of the lives, the ship respawns
     # invulnerable, and the run ends only at zero lives. Invulnerability is
@@ -147,6 +149,67 @@ def handle_collisions(asteroids, shots, player1, game, powerups, shake=None):
                 player1.activate_powerup(powerup.kind)
                 log_event("powerup_collected", powerup_type=powerup.kind.value)
                 sound.play(sound.SFX_POWERUP)  # F6: the pickup jingle
+
+    # UFO saucer (Tier 3): the saucer joins the same sweep through the
+    # optional ufos kwarg — the handle_collisions extension pattern. It
+    # rams like any body (same state + invulnerability gate as the hit
+    # branch, routed through player_hit), and dies to one shot: burst +
+    # explosion at the site, its own points_for tier on the score. Its
+    # payout rides the destruction-diff mint in main — no credits here.
+    if ufos is not None:
+        for ufo in ufos:
+            if not ufo.alive():
+                continue
+            if (
+                game.state == "playing"
+                and not player1.invulnerable
+                and ufo.collides_with(player1)
+            ):
+                log_event("player_hit")
+                game.player_hit()
+            for shot in shots:
+                if not shot.alive():
+                    continue
+                if ufo.collides_with(shot):
+                    log_event("ufo_shot_down")
+                    # V4: the word pops first, so it joins fx ahead of the
+                    # debris. burst_word gates silent below the word
+                    # threshold — the saucer's radius sits under it, like a
+                    # small rock.
+                    word = burst_word(ufo.radius)
+                    if word is not None:
+                        spawn_burst(ufo.position, ufo.radius, word)
+                    burst(ufo.position, ufo.radius)
+                    sound.play_explosion(ufo.radius)
+                    ufo.kill()
+                    shot.kill()
+                    # The saucer pays its own points_for tier on the score;
+                    # the mint for the same kill happens in main's diff poll
+                    # — one destruction→mint path.
+                    points = points_for(ufo.radius)
+                    game.add_score(points)
+                    style = popup_style("points", points)
+                    FloatingText(
+                        ufo.position.x,
+                        ufo.position.y - SCORE_POPUP_OFFSET_Y,
+                        points,
+                        label=style.label,
+                        color=style.color,
+                    )
+
+        # The saucer's aimed shots: the only shots that can reach the ship —
+        # same state + invulnerability gate as the asteroid hit branch, and
+        # routed through the same player_hit flow (shield first, burst,
+        # respawn). This check sits outside the saucer loop on purpose: the
+        # saucer may already be dead this frame, but its bullets fly on.
+        if game.state == "playing":
+            for shot in shots:
+                if not shot.alive() or not shot.from_ufo:
+                    continue
+                if not player1.invulnerable and shot.collides_with(player1):
+                    log_event("player_hit")
+                    game.player_hit()
+                    shot.kill()
 
 
 class MilestoneReward(NamedTuple):
@@ -249,7 +312,7 @@ def apply_magnet(game, player, dt, pullables):
 
 def update_world(updatable, drones, asteroids, shots, player1, game, powerups,
                  shake, field, banner, economy, dt, warning=None,
-                 floaters=None):
+                 floaters=None, ufo_spawner=None, ufos=None):
     """One simulation step: every per-frame update, frozen whole while paused.
 
     The pause flag is the entire gate (Tier 1): a frozen frame ticks nothing
@@ -274,7 +337,13 @@ def update_world(updatable, drones, asteroids, shots, player1, game, powerups,
     # the player's own — one destruction path pays every source.
     drones.update(dt, player1, asteroids, shots)
 
-    handle_collisions(asteroids, shots, player1, game, powerups, shake)
+    # UFO saucer (Tier 3): the clock ticks beside the drone bay — a plain
+    # object, so the pause/menu freeze above covers it too.
+    if ufo_spawner is not None:
+        ufo_spawner.update(dt, player1)
+
+    handle_collisions(asteroids, shots, player1, game, powerups, shake,
+                      ufos=ufos)
     maybe_advance_wave(game, field, banner, player1, economy)
     banner.update(dt)
     shake.update(dt)  # F5: decay toward still before the frame is blitted
@@ -375,7 +444,7 @@ def mint_destructions(previous, current, economy, stats):
     return paid
 
 
-def restart_run(game, economy, field, banner, asteroids):
+def restart_run(game, economy, field, banner, asteroids, ufo_spawner=None):
     """The R-key full restart — the game-over screen and the pause overlay
     both land here (F2, Tier 1), so this is the run-state reset's second
     hook beside Game.restart itself.
@@ -392,16 +461,22 @@ def restart_run(game, economy, field, banner, asteroids):
     game.restart()
     economy.end_run_effects()
     field.start_wave()
+    if ufo_spawner is not None:
+        # The saucer clock is run state: a fresh run waits a full interval
+        # again (Game.restart cleared any live saucer).
+        ufo_spawner.reset()
     banner.show(game.wave)
 
 
-def select_mode(game, economy, field, banner, asteroids, mode):
+def select_mode(game, economy, field, banner, asteroids, mode,
+                ufo_spawner=None):
     """The 1/2/3 difficulty select (Tier 2): persist the mode and launch
     the run — the boot menu's and the game-over screen's key handler,
     beside restart_run's R. Selection only happens outside a run, so
     restart() landing the mode's lives is the whole application."""
     game.set_mode(mode)
-    restart_run(game, economy, field, banner, asteroids)
+    restart_run(game, economy, field, banner, asteroids,
+                ufo_spawner=ufo_spawner)
 
 
 _float_font_cache = None
@@ -553,6 +628,7 @@ def main():
     fx = pygame.sprite.Group()
     asteroids = pygame.sprite.Group()
     shots = pygame.sprite.Group()
+    ufos = pygame.sprite.Group()
     floaters = pygame.sprite.Group()
     powerups = pygame.sprite.Group()
     particles = pygame.sprite.Group()
@@ -564,6 +640,7 @@ def main():
     AsteroidField.containers = updatable
     FloatingText.containers = (floaters, updatable, fx)
     Burst.containers = (fx, updatable)
+    UFO.containers = (ufos, updatable, entities)
 
     Player.containers = (updatable, entities)
     player1 = Player(SCREEN_WIDTH/2, SCREEN_HEIGHT/2 )
@@ -571,7 +648,8 @@ def main():
     # Game and the sweep get it so they can kick it where lives are lost
     # and rocks die.
     shake = Shake()
-    game = Game(player1, asteroids, shots, powerups, particles=particles, shake=shake)
+    game = Game(player1, asteroids, shots, powerups, particles=particles,
+                shake=shake, ufos=ufos)
     # F6: start from the persisted mute preference — the sound module only
     # learns it here; playback stays suppressed either way.
     sound.set_muted(game.muted)
@@ -592,6 +670,10 @@ def main():
     economy = Economy()
     shop = Shop(economy, player1)  # applies any save-loaded effect levels
     drones = DroneBay(economy)  # turret count follows the Drones level
+    # UFO saucer (Tier 3): the entry clock beside the drone bay — a plain
+    # object, so the pause/menu freeze covers it and it injects the live
+    # player into each spawned saucer (the firing target).
+    ufo_spawner = UFOSpawner()
     # One-time boot grant (drones PR): time away pays through the capped
     # offline math, priced off the saved Drones level. A missing
     # idle_last_seen (fresh install, pre-drones save) grants nothing.
@@ -612,6 +694,7 @@ def main():
     # unpaused frame.
     achievements = Achievements()
     prev_asteroids = set(asteroids)
+    prev_ufos = set(ufos)
     autosave_timer = 0.0
 
     # F5: the world renders to its own surface so the shake can offset the
@@ -665,7 +748,8 @@ def main():
                 # restart unpauses through Game.restart, and quit saves
                 # exactly like the game-over path.
                 if event.key == pygame.K_r:
-                    restart_run(game, economy, asteroid_field, banner, asteroids)
+                    restart_run(game, economy, asteroid_field, banner,
+                                asteroids, ufo_spawner)
                 elif event.key == pygame.K_q:
                     economy.save()
                     pygame.quit()
@@ -678,7 +762,8 @@ def main():
                 mode = DIFFICULTY_SELECT_KEYS.get(event.key)
                 if mode is not None:
                     select_mode(
-                        game, economy, asteroid_field, banner, asteroids, mode
+                        game, economy, asteroid_field, banner, asteroids, mode,
+                        ufo_spawner,
                     )
                 elif event.key == pygame.K_q and game.state == "menu":
                     economy.save()
@@ -734,7 +819,7 @@ def main():
         dt = compute_dt(ms)
         update_world(updatable, drones, asteroids, shots, player1, game,
                      powerups, shake, asteroid_field, banner, economy, dt,
-                     warning, floaters)
+                     warning, floaters, ufo_spawner, ufos)
 
         if not game.paused:
             # Destruction → credits: diff this frame's field against the
@@ -753,6 +838,26 @@ def main():
                     magnetic=style.magnetic,
                 )
             prev_asteroids = set(asteroids)
+
+            # UFO saucer deaths (Tier 3): the same frame-diff mint the rocks
+            # ride — a shot-down saucer pays its points_for tier scaled by
+            # the income multiplier; a crossing that exits never mints.
+            for wreck in destroyed_ufos(prev_ufos, ufos):
+                payout = economy.mint(wreck.radius)
+                log_event("credit_minted", amount=payout)
+                # Not a rock — the summary's tier counts stay clean; the
+                # payout still lands in the credits-read bucket.
+                game.stats.record_credits(payout, SOURCE_IDLE)
+                style = popup_style("credits", payout)
+                FloatingText(
+                    wreck.position.x,
+                    wreck.position.y,
+                    payout,
+                    label=style.label,
+                    color=style.color,
+                    magnetic=style.magnetic,
+                )
+            prev_ufos = set(ufos)
 
             # Achievements (Tier 2): a pure per-frame evaluation over the
             # run and lifetime counters — idempotent once everything is

@@ -37,7 +37,7 @@ class Game:
     """
 
     def __init__(self, player, asteroids, shots, powerups=None, save_path=SAVE_PATH,
-                 particles=None, shake=None):
+                 particles=None, shake=None, ufos=None):
         self.player = player
         self.asteroids = asteroids
         self.shots = shots
@@ -48,6 +48,9 @@ class Game:
         # a life is actually lost. None keeps every pre-F5 call unchanged.
         self.particles = particles
         self.shake = shake
+        # The saucer group (Tier 3) so restart can clear the whole world;
+        # the None default keeps every pre-UFO constructor call unchanged.
+        self.ufos = ufos
         self._score = Score(save_path)
         # Tier 2 difficulty modes: the mode persists across runs (the save
         # merge carries it), so a fresh Game resumes the saved choice and
@@ -235,6 +238,14 @@ class Game:
             # fresh run would be the same visible lie as a stale rock (F4).
             for powerup in list(self.powerups):
                 powerup.kill()
+        if self.ufos is not None:
+            # Saucers are world objects too (Tier 3) — but unlike the rocks,
+            # they flag themselves as culls here: a saucer alive at the
+            # restart was never shot down, and the UFO frame-diff poll must
+            # not read its removal as a kill and mint for it.
+            for ufo in list(self.ufos):
+                ufo.despawned = True
+                ufo.kill()
         self.player.clear_powerups()
         self.player.respawn()
         log_event("restart")

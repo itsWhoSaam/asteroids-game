@@ -11,6 +11,10 @@ class Shot(CircleShape):
         # site (drones.py) so the sweep's hit counter reads the player's
         # accuracy, not the drones' — the bullets fly the same pipeline.
         self.from_drone = False
+        # UFO saucer (Tier 3): the saucer's aimed shots tag themselves too —
+        # the sweep lets only these reach the ship, and the accuracy read
+        # stays the player's alone.
+        self.from_ufo = False
 
     def draw(self, screen):
         # Inked comic tracer (V2): same stack, scaled to the tiny radius.
