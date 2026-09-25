@@ -1,7 +1,7 @@
 import random
 
 import pygame
-from asteroid import Asteroid, boss_tier
+from asteroid import Asteroid, Mine, boss_tier, mine_spawn_rolls_in
 from constants import (
     ASTEROID_KINDS,
     ASTEROID_MAX_RADIUS,
@@ -106,8 +106,12 @@ class AsteroidField(pygame.sprite.Sprite):
         self.spawn_timer = 0.0
         self.spawned_this_wave = 0
 
-    def spawn(self, radius, position, velocity):
-        asteroid = Asteroid(position.x, position.y, radius)
+    def spawn(self, radius, position, velocity, cls=Asteroid):
+        """Spawn one rock; the optional class kwarg (the handle_collisions
+        precedent) lets the mine roll arm a Mine on the same bookkeeping —
+        every existing spawn(radius, position, velocity) call keeps its
+        exact meaning."""
+        asteroid = cls(position.x, position.y, radius)
         asteroid.velocity = velocity
         self.spawned_this_wave += 1
         return asteroid
@@ -131,4 +135,11 @@ class AsteroidField(pygame.sprite.Sprite):
             velocity = velocity.rotate(random.randint(-30, 30))
             position = edge[1](random.uniform(0, 1))
             kind = random.randint(1, ASTEROID_KINDS)
-            self.spawn(ASTEROID_MIN_RADIUS * kind, position, velocity)
+            radius = ASTEROID_MIN_RADIUS * kind
+            if mine_spawn_rolls_in(random.random()):
+                # A rare armed variant (Tier 3): the mine rides the rolled
+                # kind's radius and the rolled velocity — the variant
+                # changes the death, not the drift.
+                self.spawn(radius, position, velocity, Mine)
+            else:
+                self.spawn(radius, position, velocity)

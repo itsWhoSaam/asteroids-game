@@ -705,3 +705,30 @@ MUSIC_PAD_A_DETUNE_HZ = 110.25  # +4 cents twin: a slow 0.25 Hz beat against the
 MUSIC_PAD_B_HZ = 165.0          # E3 — the fifth above, trading places with the root
 MUSIC_PAD_VOLUME = 0.16         # the pads stay under the bass
 MUSIC_GAIN = 0.35               # the bed's own drop, before the master level
+
+
+# --- Mine asteroids (Tier 3) ---------------------------------------------------
+# A rare armed variant: the field arms a small fraction of its ordinary spawns
+# as mines (asteroid.mine_spawn_rolls_in, strict <, the drops_powerup
+# precedent). A mine flies exactly like its host rock — same radius roll, same
+# speed band — but wears a dark hull with a blinking danger marker, and when a
+# SHOT kills it, it detonates: asteroids inside MINE_BLAST_RADIUS pay through
+# the ordinary take_hit seam (plain rocks split and the destruction diff mints
+# them like any other death; the boss soaks one HP), and the ship inside the
+# radius takes the hit through the standard player-hit flow, honoring state
+# and invulnerability. One blast per shot: a mine caught in a neighbor's blast
+# dies without arming its own — a chain could cascade unboundedly in one
+# frame. All numbers are playtest starting values; none is structural.
+MINE_SPAWN_CHANCE = 0.06            # fraction of field spawns armed as mines
+MINE_BLAST_RADIUS = 110.0           # px — the detonation's damage radius
+MINE_BLAST_BURST_INTENSITY = 0.5    # debris-cloud intensity for the blast ring
+MINE_MARKER_RADIUS = 6              # px — the blinking danger marker
+MINE_MARKER_BLINK_HZ = 3.0          # marker square-wave blink rate
+MINE_BLAST_SHAKE = 10.0             # px — a detonation rocks the screen
+
+# The hull is a new palette entry appended here (the magnet precedent —
+# append-only palette growth, never editing the literals in place): dark
+# charcoal keyed through PALETTE like every color site. The marker reuses the
+# hostile red the boss bar already owns.
+PALETTE["mine_hull"] = (44, 40, 62)
+MINE_MARKER_COLOR = PALETTE["fringe_r"]

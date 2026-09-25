@@ -23,6 +23,8 @@ from constants import (
     MILESTONE_CREDIT_BONUS,
     MILESTONE_SHIELD_CHARGES,
     MILESTONE_WAVE_INTERVAL,
+    MINE_BLAST_BURST_INTENSITY,
+    MINE_BLAST_SHAKE,
     PALETTE,
     POWERUPS,
     POWERUP_ACTIVE_COLOR,
@@ -37,7 +39,7 @@ from constants import (
     SHOP_BRIGHT_COLOR,
 )
 from achievements import Achievements, event_stats_from
-from asteroid import Asteroid, Boss, boss_tier
+from asteroid import Asteroid, Boss, Mine, blast_victims, boss_tier, in_blast_radius
 from asteroidfield import AsteroidField
 from blackhole import BlackHole, BlackHoleScheduler, spawn_position as hole_position
 from comicfx import Burst, build_background_layers, burst_word, spawn_burst
@@ -232,6 +234,12 @@ def handle_collisions(asteroids, shots, player1, game, powerups, shake=None,
                         kind = drop_type(random.random())
                         PowerUp(asteroid.position.x, asteroid.position.y, kind)
                         log_event("powerup_spawned", powerup_type=kind.value)
+                    # Mine asteroids (Tier 3): a shot-armed mine detonates
+                    # instead of just dying — the blast pays the neighbors
+                    # and possibly the ship (detonate_mine).
+                    if isinstance(asteroid, Mine):
+                        detonate_mine(asteroid, asteroids, player1, game,
+                                      shake=shake, hit_stop=hit_stop)
                 break  # the hit is spent on this rock; skip its remaining shots
 
     # Insanity core: the frame's shot kills buy a freeze — one rock is a
@@ -256,7 +264,12 @@ def handle_collisions(asteroids, shots, player1, game, powerups, shake=None,
                     burst(asteroid.position, asteroid.radius)
                     sound.play_explosion(asteroid.radius)
                     shot_kills += 1
-                break
+                    # Tier 3: saucer fire can set mines off too — the blast
+                    # pays whoever it reaches, the friendly branch's helper.
+                    if isinstance(asteroid, Mine):
+                        detonate_mine(asteroid, asteroids, player1, game,
+                                      shake=shake, hit_stop=hit_stop)
+                    break
         freeze_for_destructions(hit_stop, shot_kills)
         # 2 & 3 · Saucers and their fire vs the ship: a hit costs a life
         # through the standard player_hit path — shield absorbs, i-frames
@@ -605,6 +618,47 @@ def bomb_clear(hit_stop, shake, asteroids):
     nuke_field(asteroids)
     if shake is not None:
         shake.kick(SHAKE_BOMB)
+
+
+def detonate_mine(mine, asteroids, player1, game, shake=None, hit_stop=None):
+    """A shot-killed mine's blast (Tier 3): everything inside the radius pays.
+
+    Neighbor rocks route through the ordinary take_hit seam — plain rocks
+    split and the destruction diff mints them like any other death, the
+    boss soaks one HP. The ship inside the radius takes the hit through
+    the standard player_hit flow (shield, respawn, and the same
+    playing/invulnerable gates the sweep's hazard branches use). One
+    blast per shot: a mine caught in a neighbor's blast dies without
+    arming its own — a chain could cascade unboundedly inside one frame.
+
+    Wired in main beside nuke_field/bomb_clear — world-mutating helpers,
+    called from the sweep's two shot-kill sites — so the mine stays a
+    dumb body with no world refs. The sweep already burst the dying mine
+    and played its pitched explosion; the detonation adds the blast
+    cloud and the screen kick, no second mixer call.
+    """
+    victims = blast_victims(asteroids, mine.position, mine.blast_radius,
+                            exclude=mine)
+    blast_kills = 0
+    for victim in victims:
+        burst(victim.position, victim.radius)
+        if victim.take_hit():
+            blast_kills += 1
+    if (
+        game.state == "playing"
+        and not player1.invulnerable
+        and in_blast_radius(mine.position, player1.position, mine.blast_radius)
+    ):
+        log_event("player_hit")
+        game.player_hit()
+    # The blast wave itself: a debris ring bigger than the mine's own
+    # death pop, at the detonation site.
+    burst(mine.position, mine.blast_radius, MINE_BLAST_BURST_INTENSITY)
+    if shake is not None:
+        shake.kick(MINE_BLAST_SHAKE)
+    if blast_kills:
+        freeze_for_destructions(hit_stop, blast_kills)
+    log_event("mine_detonated", victims=len(victims))
 
 
 def mint_destructions(previous, current, economy, stats, wave=None):
