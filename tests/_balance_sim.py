@@ -490,7 +490,13 @@ def step(world, stats, sim_time, click_due, buy_due,
         saucers=world["saucers"],
         enemy_shots=world["enemy_shots"],
     )
-    maybe_advance_wave(game, world["field"], world["banner"])
+    maybe_advance_wave(
+        game,
+        world["field"],
+        world["banner"],
+        player1,
+        economy,
+    )
     maybe_boss_wave(game, world["field"])
     game.tick(sim_dt)  # insanity core: the combo window drains on sim time
     world["banner"].update(sim_dt)

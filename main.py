@@ -1,5 +1,6 @@
 import blackhole
 import random
+from typing import NamedTuple
 
 import pygame
 
@@ -18,6 +19,9 @@ from constants import (
     HUD_MARGIN,
     IDLE_AUTOSAVE_SECONDS,
     MAX_DT,
+    MILESTONE_CREDIT_BONUS,
+    MILESTONE_SHIELD_CHARGES,
+    MILESTONE_WAVE_INTERVAL,
     PALETTE,
     POWERUPS,
     POWERUP_ACTIVE_COLOR,
@@ -25,6 +29,8 @@ from constants import (
     SFX_POWERUP,
     SCREEN_WIDTH,
     SCREEN_HEIGHT,
+    SCORE_COLOR,
+    SCORE_POPUP_OFFSET_Y,
     SHAKE_BOMB,
     SHAKE_LARGE_ASTEROID,
     SHOP_BRIGHT_COLOR,
@@ -32,15 +38,21 @@ from constants import (
 from asteroid import Asteroid, Boss, boss_tier
 from asteroidfield import AsteroidField
 from blackhole import BlackHole, BlackHoleScheduler, spawn_position as hole_position
+from comicfx import Burst, build_background_layers, burst_word, spawn_burst
 from economy import Economy
 from drones import DroneBay, OfflineBanner, drone_dps
 from game import Game
 from hud import (
+    LowLivesWarning,
     WaveBanner,
     draw_boss_bar,
     draw_game_over,
+    draw_help,
     draw_hud,
+    draw_pause,
+    draw_run_summary,
     hud_font,
+    points_for,
 )
 from logger import log_state, log_event
 from particles import Particle, Shake, burst
@@ -60,6 +72,7 @@ from saucer import (
     spawn_side_position,
 )
 from shop import Shop
+from stats import SOURCE_IDLE
 import sound
 from shot import Shot
 
@@ -146,6 +159,20 @@ def handle_collisions(asteroids, shots, player1, game, powerups, shake=None,
                 continue
             if asteroid.collides_with(shot):
                 log_event("asteroid_shot")
+                # Run stats (run-stats PR): a player shot connected — turret
+                # shots ride the same pipeline tagged from_drone, and stay
+                # out of the accuracy read. The kill also re-attributes the
+                # rock below, so a chip history cannot turn a shot kill into
+                # a click payout.
+                if not shot.from_drone:
+                    game.stats.record_hit()
+                # V4: the word pops first, so it joins fx ahead of the
+                # debris — the burst polygon sits behind the particle cloud
+                # it salutes. POW! on large, BOOM! on medium, small stays
+                # silent (burst_word is the pure gate).
+                word = burst_word(asteroid.radius)
+                if word is not None:
+                    spawn_burst(asteroid.position, asteroid.radius, word)
                 # F5: the parent bursts at its death site right before
                 # splitting — any size; a large rock's destruction also
                 # rocks the screen, mildly and scaled to its size. One
@@ -156,6 +183,7 @@ def handle_collisions(asteroids, shots, player1, game, powerups, shake=None,
                     shake.kick(
                         SHAKE_LARGE_ASTEROID * asteroid.radius / ASTEROID_MAX_RADIUS
                     )
+                asteroid.killed_by = SOURCE_IDLE  # run stats: the shot killed it
                 # Every shot routes through the take_hit seam (the Boss
                 # overrides it into its HP pool) — the sweep never calls
                 # split() directly; plain rocks die exactly as before.
@@ -172,8 +200,21 @@ def handle_collisions(asteroids, shots, player1, game, powerups, shake=None,
                     # real shots into this same group) advance the combo chain
                     # and pay points × its multiplier. Chip clicks and nukes
                     # never route here: credits-only, combo-free.
-                    game.register_kill(asteroid.kill_points)
+                    points = asteroid.kill_points
+                    game.register_kill(points)
                     shot_kills += 1
+                    # Distinct score popups: the points award floats as its own
+                    # white '+N pts' at the kill site — display only, it touches
+                    # neither the score nor the ledger. It starts a head above
+                    # the credit float the destruction diff pays this same frame.
+                    style = popup_style("points", points)
+                    FloatingText(
+                        asteroid.position.x,
+                        asteroid.position.y - SCORE_POPUP_OFFSET_Y,
+                        points,
+                        label=style.label,
+                        color=style.color,
+                    )
                     # A destroyed non-small rock occasionally pays a pickup
                     # (F4); bosses never do (insanity threats) — and the
                     # guard reads before the roll, so a boss death draws no
@@ -273,22 +314,156 @@ def handle_collisions(asteroids, shots, player1, game, powerups, shake=None,
                 player1.activate_powerup(kind)
 
 
-def maybe_advance_wave(game, field, banner):
+class MilestoneReward(NamedTuple):
+    """What a milestone wave pays: shield charges stocked on the ship and a
+    flat credit bonus to the idle ledger."""
+
+    shield_charges: int
+    credits: float
+
+
+def milestone_reward(wave):
+    """The grant for a wave number, or None when the wave pays none.
+
+    Pure (Tier 1 milestone rewards): exactly the waves divisible by
+    MILESTONE_WAVE_INTERVAL pay, so the trigger is provable without a
+    live game.
+    """
+    if wave % MILESTONE_WAVE_INTERVAL != 0:
+        return None
+    return MilestoneReward(
+        shield_charges=MILESTONE_SHIELD_CHARGES,
+        credits=MILESTONE_CREDIT_BONUS,
+    )
+
+
+def maybe_advance_wave(game, field, banner, player=None, economy=None):
     """Start the next wave once the current one was populated and is cleared
     (engagement F3).
 
     The populated guard is the trap at both ends of a run: at game start and
     after R-restart the field is empty with wave at 1 — without it the
     counter would immediately tick to 2. Game over advances nothing.
+
+    Tier 1 milestone rewards: every 5th wave stocks a shield charge on the
+    ship and pays a flat credit bonus to the idle ledger, announced in the
+    banner text. Player and economy ride optional kwargs — the
+    handle_collisions precedent — so the pinned three-argument call shape
+    (tests, the balance sim) keeps working unchanged.
     """
     if game.state != "playing":
         return
     if field.spawned_this_wave == 0 or len(game.asteroids) > 0:
         return
     game.wave += 1
+    game.stats.record_wave_cleared()  # run stats: a wave survived (run-stats PR)
     field.start_wave()  # fresh spawn clock and populated guard for the new wave
-    banner.show(game.wave)
+    reward = milestone_reward(game.wave)
+    if reward is not None:
+        if player is not None:
+            player.grant_shield(reward.shield_charges)
+        if economy is not None:
+            economy.grant_milestone(reward.credits)
+    banner.show(
+        game.wave,
+        milestone_credits=None if reward is None else reward.credits,
+    )
+    sound.play(sound.SFX_WAVE_CLEAR)  # extra SFX: a rising arpeggio, wave won
     log_event("wave_started", wave=game.wave)
+    if reward is not None:
+        log_event(
+            "milestone_reward",
+            wave=game.wave,
+            shield_charges=reward.shield_charges,
+            credits=reward.credits,
+        )
+
+
+def update_world(updatable, drones, asteroids, shots, player1, game, powerups,
+                 shake, field, banner, economy, dt, warning=None,
+                 hit_stop=None, saucers=None, enemy_shots=None,
+                 blackholes=None, saucer_clock=None, hole_clock=None):
+    """One simulation step: every per-frame update, frozen whole while paused.
+
+    The pause flag is the entire gate (Tier 1): a frozen frame ticks nothing
+    — sprites, drone turrets, the collision sweep, the wave clock, the
+    banner and shake, bought-powerup durations — so nothing ages, dies, or
+    mints while the overlay is up. The event pump and the render stay live,
+    so mute, resume, restart, and quit all still answer. main() also gates
+    its destruction-diff poll and autosave on the same flag.
+
+    Insanity core and threats (all keyword-optional, so the base flow works
+    unchanged without them): the hit-stop freeze gates the sim's dt — the
+    whole simulation holds (movement, drones, particles, timers, banner,
+    combo window) while the freeze and the shake decay on real dt so the
+    pause always ends; saucers update explicitly (their step needs the
+    player and the enemy group, which the updatable pass doesn't forward);
+    the threat clocks spawn saucers from wave 2 and black holes from wave 3
+    — never during game over, and a hole never opens during a boss wave
+    (the scheduler is told directly); and the combo window drains on sim
+    time through game.tick.
+    """
+    if game.paused:
+        return
+    if hit_stop is not None:
+        # Insanity core: the freeze-frame holds the whole simulation while
+        # the freeze decays on real dt so it always ends.
+        hit_stop.update(dt)
+    sim_dt = effective_frame_dt(dt, hit_stop) if hit_stop is not None else dt
+    if blackholes is not None:
+        # Insanity threats: publish this frame's live wells before the world
+        # update — every body's pull consult reads the registry this pass is
+        # about to step. A well spawned later in the frame joins the next
+        # frame's registry; one frame of latency, never a stale pull.
+        blackhole.refresh_live_holes(blackholes)
+    updatable.update(sim_dt)
+
+    # Drone turrets fire real shots into the same pipeline (drones PR):
+    # the sweep below and the destruction diff treat them exactly like
+    # the player's own — one destruction path pays every source.
+    drones.update(sim_dt, player1, asteroids, shots)
+
+    # Saucers update explicitly, not through the group pass (insanity
+    # threats): their step needs the player and the enemy group, which
+    # the updatable pass doesn't forward.
+    if saucers is not None:
+        saucers.update(sim_dt, player1, enemy_shots)
+
+    # Threat spawn clocks (insanity threats): saucers from wave 2, black
+    # holes from wave 3 — never during game over, and a hole never opens
+    # during a boss wave (the scheduler is told directly).
+    if game.state == "playing" and saucer_clock is not None:
+        kind = saucer_clock.update(sim_dt, game.wave)
+        if kind is not None:
+            Saucer(*spawn_side_position(kind), kind)
+    if game.state == "playing" and hole_clock is not None:
+        if hole_clock.update(sim_dt, game.wave,
+                             game.wave % BOSS_WAVE_INTERVAL == 0):
+            BlackHole(*hole_position())
+
+    handle_collisions(asteroids, shots, player1, game, powerups, shake,
+                      hit_stop=hit_stop, saucers=saucers,
+                      enemy_shots=enemy_shots)
+    maybe_advance_wave(game, field, banner, player1, economy)
+    maybe_boss_wave(game, field)
+    game.tick(sim_dt)  # insanity core: the combo window drains on sim time
+    banner.update(sim_dt)
+    shake.update(dt)  # F5: decay toward still before the frame is blitted
+
+    # Low-lives warning (UX wave): the gate re-derives from lives + state
+    # every frame — respawn, game over, and restart all leave it with no
+    # dedicated hook, and a frozen run holds its phase with the rest.
+    if warning is not None:
+        warning.update(dt, game.lives, game.state)
+
+    # Bought powerups tick on the dt-timer pattern: expire effects,
+    # then publish the chrono scale the whole field reads this frame.
+    economy.tick_powerups(sim_dt)
+    Asteroid.speed_scale = economy.chrono_scale()
+    # Insanity chaos: while the HOMING pickup runs, every friendly shot
+    # steers — the speed_scale precedent: one class-level write per
+    # frame, no per-shot wiring. None re-arms straight flight.
+    Shot.homing_targets = asteroids if player1.has_homing else None
 
 
 def maybe_boss_wave(game, field):
@@ -370,6 +545,9 @@ def nuke_field(asteroids):
     while len(asteroids) > 0:
         for rock in list(asteroids):
             burst(rock.position, rock.radius)
+            # Run stats: the nuke killed these rocks, not any earlier chips
+            # on them — re-attribute before the split pays the diff.
+            rock.killed_by = SOURCE_IDLE
             rock.split()
 
 
@@ -382,6 +560,68 @@ def bomb_clear(hit_stop, shake, asteroids):
     nuke_field(asteroids)
     if shake is not None:
         shake.kick(SHAKE_BOMB)
+
+
+def mint_destructions(previous, current, economy, stats, wave=None):
+    """The idle mint poll: every wreck the frame diff finds pays the ledger
+    exactly once — the one destruction→mint path (idle core).
+
+    Returns (wreck, payout) pairs so the caller floats '+N' labels at the
+    death sites. The run stats record here because the diff is the one
+    place every destruction source surfaces (shots, clicks, drones, nukes):
+    a rock lands in its size tier, and its payout in the click or idle
+    bucket by the killer the wreck reports (run-stats PR).
+
+    Bosses surface here but never mint (insanity threats): their death is
+    score-only, paid through register_kill at the sweep — the diff pass
+    logs the defeat and moves on.
+    """
+    paid = []
+    for wreck in destroyed_asteroids(previous, current):
+        if isinstance(wreck, Boss):
+            log_event("boss_defeated", wave=wave)
+            continue
+        payout = economy.mint(wreck.radius)
+        log_event("credit_minted", amount=payout)
+        stats.record_destroyed(wreck.radius)
+        stats.record_credits(payout, wreck.killed_by)
+        paid.append((wreck, payout))
+    return paid
+
+
+def restart_run(game, economy, field, banner, asteroids, *, saucers=None,
+                blackholes=None, enemy_shots=None, threat_clocks=()):
+    """The R-key full restart — the game-over screen and the pause overlay
+    both land here (F2, Tier 1), so this is the run-state reset's second
+    hook beside Game.restart itself.
+
+    A cleared field is not player destruction: every rock is flagged as a
+    cull so the diff poll never mints for the restart. Game.restart resets
+    the run — score, lives, wave, and the run stats in place — bought timed
+    effects die with the run (the paid use is consumed), and the field
+    forgets the old wave or its populated guard would see an empty fresh
+    field and tick to wave 2 before anything spawns.
+
+    Insanity threats: the hostiles and any live well clear with the run —
+    each flagged a cull, never a paid kill, enemy fire swept with them —
+    and the threat spawn clocks re-arm for the fresh run. All optional
+    keywords: the base flow works unchanged without them.
+    """
+    for asteroid in asteroids:
+        asteroid.despawned = True
+    for group in (saucers, blackholes, enemy_shots):
+        if group is None:
+            continue
+        for sprite in list(group):
+            if hasattr(sprite, "despawned"):
+                sprite.despawned = True
+            sprite.kill()
+    game.restart()
+    economy.end_run_effects()
+    field.start_wave()
+    banner.show(game.wave)
+    for clock in threat_clocks:
+        clock.reset()
 
 
 _float_font_cache = None
@@ -400,6 +640,26 @@ def float_label(amount):
     return f"+{int(amount)}"
 
 
+class PopupStyle(NamedTuple):
+    """The resolved look of one floating-popup kind (distinct score popups)."""
+
+    label: str
+    color: tuple
+
+
+def popup_style(kind, amount):
+    """Label + color for a floating popup, by kind.
+
+    Pure (distinct score popups): both kinds share the FloatingText
+    dt-timer template but never a look — points announce '+N pts' in the
+    palette's warm white, credits keep their yellow '+N'. One resolver, so
+    the two kinds cannot drift into each other.
+    """
+    if kind == "points":
+        return PopupStyle(f"+{int(amount)} pts", SCORE_COLOR)
+    return PopupStyle(float_label(amount), FLOAT_COLOR)
+
+
 def click_damage(shop, economy):
     """Chip damage per click: the constant base scaled by Nanoblade
     levels — and ×10 while Overdrive runs (insane powerups). Shots
@@ -408,10 +668,13 @@ def click_damage(shop, economy):
 
 
 class FloatingText(pygame.sprite.Sprite):
-    """A '+N' credit number rising from a fresh wreck (idle core).
+    """A small text line rising from a point and fading on the dt-timer.
 
-    Lifetime runs on the dt-timer pattern — no wall-clock calls, so
-    headless runs and tests step it deterministically.
+    The idle core's '+N' credit float is the original; the distinct-score-
+    popups wave made this the shared template — points and credits (and the
+    shop/powerup notices) all ride it with their own resolved look. Lifetime
+    runs on the dt-timer pattern — no wall-clock calls, so headless runs and
+    tests step it deterministically.
     """
 
     containers = ()
@@ -422,7 +685,11 @@ class FloatingText(pygame.sprite.Sprite):
         else:
             super().__init__()
         self.position = pygame.Vector2(x, y)
-        self.surface = float_font().render(label or float_label(amount), True, color)
+        # The resolved look rides the sprite so tests and evidence scripts
+        # can tell which kind a float is without OCR-ing the surface.
+        self.label = label or float_label(amount)
+        self.color = color
+        self.surface = float_font().render(self.label, True, color)
         self.lifetime = FLOAT_LIFETIME_SECONDS
 
     def update(self, dt):
@@ -442,6 +709,43 @@ def draw_credits(screen, credits):
     screen.blit(surface, (HUD_MARGIN, HUD_MARGIN + HUD_CREDITS_ROW * HUD_LINE_STEP))
 
 
+def render_world(screen, world, background, entities, fx, offset, game,
+                 warning=None, dash_timer=None):
+    """The V4 composition: three explicit passes into the world, then the
+    screen-level steps — the blueprint's pass split, replacing the single
+    flat drawable-group draw.
+
+    Pass 1 paints the static action lines: the background pass, the only
+    place background treatment may paint (entity draw functions never
+    paint background, so their tests keep black-screen assertions). Pass 2
+    draws the entities; pass 3 the fx — particles and burst texts, always
+    above the field they decorate. The world blits at the shake offset
+    (the draw origin moves, entity positions never do), the halftone
+    dot-screen prints over it at screen level, and the HUD renders last,
+    unshaken."""
+    action_lines, halftone = background
+    world.fill(PALETTE["paper"])
+    world.blit(action_lines, (0, 0))  # pass 1: static action lines
+    for each in entities:  # pass 2: player, rocks, shots, pickups
+        each.draw(world)
+    for each in fx:  # pass 3: particles + bursts, always atop entities
+        each.draw(world)
+
+    screen.fill(PALETTE["paper"])
+    screen.blit(world, offset)
+    screen.blit(halftone, (0, 0))  # the screen-level print, over the world
+    # Low-lives warning (UX wave): the vignette prints above the halftone
+    # but under the HUD text, so the pulsing line stays crisp while the
+    # edges burn.
+    if warning is not None:
+        warning.draw_vignette(screen)
+    draw_hud(screen, game.score, lives=game.lives, wave=game.wave,
+             muted=game.muted,  # HUD last, above every world layer
+             volume=getattr(game, "volume", None),
+             lives_pulse=warning.pulse if warning is not None else None,
+             combo=game.combo, dash_timer=dash_timer)
+
+
 def main():
     pygame.init()
     sound.init()  # F6: mixer + SFX; any failure degrades to a silent no-op
@@ -450,7 +754,12 @@ def main():
     screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
 
     updatable = pygame.sprite.Group()
-    drawable = pygame.sprite.Group()
+    # V4: the flat drawable group splits into explicit passes — entities
+    # (player, rocks, shots, pickups) and fx (particles, bursts, floaters)
+    # — so fx always renders above the field it decorates, no matter the
+    # order things spawned in.
+    entities = pygame.sprite.Group()
+    fx = pygame.sprite.Group()
     asteroids = pygame.sprite.Group()
     shots = pygame.sprite.Group()
     floaters = pygame.sprite.Group()
@@ -463,17 +772,18 @@ def main():
     saucers = pygame.sprite.Group()
     blackholes = pygame.sprite.Group()
 
-    Asteroid.containers = (asteroids, updatable, drawable)
-    Shot.containers = (shots, updatable, drawable)
-    PowerUp.containers = (powerups, updatable, drawable)
-    Particle.containers = (particles, updatable, drawable)
+    Asteroid.containers = (asteroids, updatable, entities)
+    Shot.containers = (shots, updatable, entities)
+    PowerUp.containers = (powerups, updatable, entities)
+    Particle.containers = (particles, updatable, fx)
     AsteroidField.containers = updatable
-    FloatingText.containers = (floaters, updatable, drawable)
+    FloatingText.containers = (floaters, updatable, fx)
+    Burst.containers = (fx, updatable)
     SaucerShot.containers = (enemy_shots, updatable, drawable)
     Saucer.containers = (saucers, drawable)
     BlackHole.containers = (blackholes, updatable, drawable)
 
-    Player.containers = (updatable, drawable)
+    Player.containers = (updatable, entities)
     player1 = Player(SCREEN_WIDTH/2, SCREEN_HEIGHT/2 )
     # F5: the shake lives in main (it offsets the render, not the world);
     # Game and the sweep get it so they can kick it where lives are lost
@@ -493,12 +803,19 @@ def main():
     # F6: start from the persisted mute preference — the sound module only
     # learns it here; playback stays suppressed either way.
     sound.set_muted(game.muted)
+    # Master volume: same seam, one sync — the persisted level scales every
+    # SFX from the first frame.
+    sound.set_volume(game.volume)
 
     # The field reads the wave off the Game (F3), so it is built after one
     # exists. The WAVE 1 flash arms at game start.
     asteroid_field = AsteroidField(game)
     banner = WaveBanner()
     banner.show(game.wave)
+    # Low-lives warning (UX wave): pulses the HUD lives line and prints the
+    # edge vignette while exactly one life remains. Not run state — it
+    # re-derives its gate from the Game every frame.
+    warning = LowLivesWarning()
 
     economy = Economy()
     shop = Shop(economy, player1)  # applies any save-loaded effect levels
@@ -519,6 +836,14 @@ def main():
     # blit origin — entity draw calls and positions never change. Built once.
     world = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT))
 
+    # V3/V4: the comic background pre-renders once as a pair — the action
+    # lines layer (blitted into the world as the background pass, under the
+    # entities) and the halftone dot-screen (the screen-level print over the
+    # shaken world). Entity draw functions never paint background; all
+    # background treatment lives in this composition.
+    background = build_background_layers(SCREEN_WIDTH, SCREEN_HEIGHT)
+
+
     while True:
         log_state()
 
@@ -532,43 +857,47 @@ def main():
                 # through the save loader. Kept in this event-pump block;
                 # later features add their input alongside it.
                 sound.set_muted(game.toggle_mute())
-            if event.type == pygame.KEYDOWN and game.state == "game_over":
-                # R restarts, Q quits (engagement F2). Kept in this event-pump
-                # block; later features add their input alongside it.
+            if event.type == pygame.KEYDOWN and event.key in (pygame.K_LEFTBRACKET, pygame.K_RIGHTBRACKET):
+                # Master volume (UX wave): [ steps down, ] steps up, 10%
+                # per press in any state, persisted through the save
+                # loader. Mute still overrides audibly and never touches
+                # the level — same seam as the M branch above.
+                direction = 1 if event.key == pygame.K_RIGHTBRACKET else -1
+                sound.set_volume(game.step_volume(direction))
+            if (event.type == pygame.KEYDOWN
+                    and event.key in (pygame.K_p, pygame.K_ESCAPE)):
+                # Tier 1 pause: P or Esc freezes a live run and shows the
+                # overlay. Game over owns its own screen — toggle_pause
+                # refuses there — and mute above stays live while frozen.
+                game.toggle_pause()
+            if event.type == pygame.KEYDOWN and event.key == pygame.K_h:
+                # Tier 1 help: H toggles the keybind list over dimmed play.
+                # Documentation, not a world change — it dims but never
+                # freezes, so it answers while frozen too (the pause keys
+                # above stay live with the list up). Game over keeps its
+                # own screen; toggle_help refuses there, same as pause.
+                game.toggle_help()
+            if event.type == pygame.KEYDOWN and (
+                    game.state == "game_over" or game.paused):
+                # R restarts, Q quits (engagement F2). The pause overlay
+                # promises the same two keys while frozen (Tier 1 pause):
+                # restart unpauses through Game.restart, and quit saves
+                # exactly like the game-over path.
                 if event.key == pygame.K_r:
-                    # A cleared field is not player destruction: flag every
-                    # rock as a cull so the diff poll never mints for restart.
-                    for asteroid in asteroids:
-                        asteroid.despawned = True
-                    # Insanity threats: restart clears the hostiles and any
-                    # live well too — each a cull, never a paid kill.
-                    for saucer in saucers:
-                        saucer.despawned = True
-                        saucer.kill()
-                    for hole in blackholes:
-                        hole.despawned = True
-                        hole.kill()
-                    for shot in list(enemy_shots):
-                        shot.kill()
-                    game.restart()
-                    # Bought timed effects die with the run: the paid
-                    # use is consumed, the new run starts clean.
-                    economy.end_run_effects()
-                    # The field forgets the old wave too, or its populated
-                    # guard would see an empty field and tick to wave 2
-                    # before the fresh run spawns anything.
-                    asteroid_field.start_wave()
-                    banner.show(game.wave)
-                    # The threat clocks re-arm with the run (insanity threats).
-                    saucer_clock.reset()
-                    hole_clock.reset()
+                    restart_run(game, economy, asteroid_field, banner,
+                                asteroids, saucers=saucers,
+                                blackholes=blackholes,
+                                enemy_shots=enemy_shots,
+                                threat_clocks=(saucer_clock, hole_clock))
                 elif event.key == pygame.K_q:
                     economy.save()
                     pygame.quit()
                     return
-            if event.type == pygame.KEYDOWN:
+            if event.type == pygame.KEYDOWN and not game.paused:
                 # Shop keys 1–4 (idle shop): additive beside F2's R/Q —
                 # different keys, so neither branch shadows the other.
+                # A frozen run answers nothing but the overlay keys (and M
+                # above): ledger spends and nukes must not fire mid-pause.
                 purchase = shop.handle_key(event.key)
                 if purchase is not None:
                     x, y = shop.cell_center(purchase.name)
@@ -601,10 +930,11 @@ def main():
                         label=f"{POWERUPS[powerup]['title'].upper()}!",
                         color=POWERUP_ACTIVE_COLOR,
                     )
-            if event.type == pygame.MOUSEBUTTONDOWN:
+            if event.type == pygame.MOUSEBUTTONDOWN and not game.paused:
                 # Idle core: a click chips the rock under the cursor. take_chip
                 # routes any kill through split(), so every destruction source
                 # shares one downstream mint path (the group diff below).
+                # Paused frames chip nothing — world mutations hold.
                 target = asteroid_at(asteroids, event.pos)
                 if target is not None:
                     # A click kill is still a destruction: one base beat,
@@ -623,89 +953,45 @@ def main():
 
         ms = game_clk.tick(60)
         dt = compute_dt(ms)
-        # Insanity core: the freeze-frame holds the whole simulation —
-        # movement, drones, particles, timers, banner, combo window — while
-        # the freeze and the shake decay on real dt so the pause always ends.
-        hit_stop.update(dt)
-        sim_dt = effective_frame_dt(dt, hit_stop)
-        # Insanity threats: publish this frame's live wells before the world
-        # update — every body's pull consult reads the registry this pass is
-        # about to step. A well spawned later in the frame joins the next
-        # frame's registry; one frame of latency, never a stale pull.
-        blackhole.refresh_live_holes(blackholes)
-        updatable.update(sim_dt)
-        # player1.update(dt)
+        update_world(updatable, drones, asteroids, shots, player1, game,
+                     powerups, shake, asteroid_field, banner, economy, dt,
+                     warning, hit_stop=hit_stop, saucers=saucers,
+                     enemy_shots=enemy_shots, blackholes=blackholes,
+                     saucer_clock=saucer_clock, hole_clock=hole_clock)
 
-        # Drone turrets fire real shots into the same pipeline (drones PR):
-        # the sweep below and the destruction diff treat them exactly like
-        # the player's own — one destruction path pays every source.
-        drones.update(sim_dt, player1, asteroids, shots)
+        if not game.paused:
+            # Destruction → credits: diff this frame's field against the
+            # last, mint once per wreck, float a '+N' over the wreck.
+            # Frozen frames change no groups, so the poll holds too. The
+            # run stats record inside the same poll (run-stats PR). Bosses
+            # route through the same diff but mint nothing — their death
+            # is score-only, logged where the paid kill is known.
+            for wreck, payout in mint_destructions(
+                    prev_asteroids, asteroids, economy, game.stats,
+                    wave=game.wave):
+                style = popup_style("credits", payout)
+                FloatingText(
+                    wreck.position.x,
+                    wreck.position.y,
+                    payout,
+                    label=style.label,
+                    color=style.color,
+                )
+            prev_asteroids = set(asteroids)
 
-        # Saucers update explicitly, not through the group pass (insanity
-        # threats): their step needs the player and the enemy group, which
-        # the updatable pass doesn't forward.
-        saucers.update(sim_dt, player1, enemy_shots)
+            autosave_timer += dt
+            if autosave_timer >= IDLE_AUTOSAVE_SECONDS:
+                autosave_timer = 0.0
+                economy.save()
 
-        # Threat spawn clocks (insanity threats): saucers from wave 2, black
-        # holes from wave 3 — never during game over, and a hole never opens
-        # during a boss wave (the scheduler is told directly).
-        if game.state == "playing":
-            kind = saucer_clock.update(sim_dt, game.wave)
-            if kind is not None:
-                Saucer(*spawn_side_position(kind), kind)
-            if hole_clock.update(sim_dt, game.wave,
-                                 game.wave % BOSS_WAVE_INTERVAL == 0):
-                BlackHole(*hole_position())
-
-        handle_collisions(asteroids, shots, player1, game, powerups, shake,
-                          hit_stop=hit_stop, saucers=saucers,
-                          enemy_shots=enemy_shots)
-        maybe_advance_wave(game, asteroid_field, banner)
-        maybe_boss_wave(game, asteroid_field)
-        game.tick(sim_dt)  # insanity core: the combo window drains on sim time
-        banner.update(sim_dt)
-        shake.update(dt)  # F5: decay toward still before the frame is blitted
-
-        # Bought powerups tick on the dt-timer pattern: expire effects,
-        # then publish the chrono scale the whole field reads this frame.
-        economy.tick_powerups(sim_dt)
-        Asteroid.speed_scale = economy.chrono_scale()
-        # Insanity chaos: while the HOMING pickup runs, every friendly shot
-        # steers — the speed_scale precedent: one class-level write per
-        # frame, no per-shot wiring. None re-arms straight flight.
-        Shot.homing_targets = asteroids if player1.has_homing else None
-
-        # Destruction → credits: diff this frame's field against the last,
-        # mint once per wreck, float a '+N' over the wreck. Bosses route
-        # through the same diff but mint nothing (mintable=False) — their
-        # death is score-only, logged here where the paid kill is known.
-        for wreck in destroyed_asteroids(prev_asteroids, asteroids):
-            if isinstance(wreck, Boss):
-                log_event("boss_defeated", wave=game.wave)
-                continue
-            payout = economy.mint(wreck.radius)
-            log_event("credit_minted", amount=payout)
-            FloatingText(wreck.position.x, wreck.position.y, payout)
-        prev_asteroids = set(asteroids)
-
-        autosave_timer += dt
-        if autosave_timer >= IDLE_AUTOSAVE_SECONDS:
-            autosave_timer = 0.0
-            economy.save()
-
-        world.fill(PALETTE["paper"])
-        for each in drawable:
-            each.draw(world)
-
-        # The world is blitted at the shaken offset — the draw origin moves,
-        # entities don't. HUD and banners draw after, unshaken, so the
-        # score stays readable while the world rocks (F5).
-        screen.fill(PALETTE["paper"])
-        screen.blit(world, shake.offset())
-
-        draw_hud(screen, game.score, lives=game.lives, wave=game.wave,
-                 muted=game.muted, combo=game.combo,
-                 dash_timer=player1.dash_timer if game.state == "playing" else None)
+        # V4: three explicit passes into the world, then the screen-level
+        # steps — the world blit at the shaken offset (the draw origin
+        # moves, entities don't), the halftone print, HUD last and unshaken
+        # so the score stays readable while the world rocks (F5).
+        render_world(screen, world, background, entities, fx, shake.offset(),
+                     game, warning,
+                     dash_timer=player1.dash_timer
+                     if game.state == "playing" else None)
         draw_credits(screen, economy.credits)
         # The boss HP bar sits top-center during a boss fight (insanity
         # threats) — under the HUD rows, over the world.
@@ -715,7 +1001,8 @@ def main():
             )
             if live_boss is not None:
                 draw_boss_bar(screen, live_boss)
-        offline_banner.update(dt)
+        if not game.paused:
+            offline_banner.update(dt)  # a frozen frame fades no UI timers
         offline_banner.draw(screen)
         drones.draw(screen, player1)
         shop.draw_panel(screen)
@@ -724,6 +1011,13 @@ def main():
             draw_game_over(screen, game.score, new_high=game.new_high,
                            top_chain=game.combo.top,
                            best_multiplier=game.combo.best_multiplier)
+            # Run stats (run-stats PR): the run's counters, in a summary
+            # block under the game-over prompt.
+            draw_run_summary(screen, game.stats)
+        elif game.paused:
+            draw_pause(screen)  # the frozen world dims under the prompt
+        if game.help_open:
+            draw_help(screen)  # over dimmed play — or over the paused dim
         banner.draw(screen)  # on top: the WAVE n flash overlays everything
 
         pygame.display.flip()

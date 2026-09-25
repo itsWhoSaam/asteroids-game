@@ -268,12 +268,13 @@ def test_hud_draws_the_combo_readout_while_a_chain_lives():
     for _ in range(3):
         meter.register_kill()
 
-    def slot_pixels():
+    def slot_pixels(target=None):
         # The combo row sits directly under the wave slot (row 3 while
         # lives and wave are shown).
+        surface = target if target is not None else screen
         y0 = 12 + 3 * 34
         return [
-            screen.get_at((x, y))
+            surface.get_at((x, y))
             for x in range(12, 250, 4)
             for y in range(y0, y0 + 28, 3)
         ]
@@ -285,7 +286,13 @@ def test_hud_draws_the_combo_readout_while_a_chain_lives():
     meter.break_chain()  # chain gone: the readout goes with it
     screen.fill("black")
     draw_hud(screen, 0, lives=3, wave=2, combo=meter, dash_timer=0.0)
-    assert all(pixel == (0, 0, 0, 255) for pixel in slot_pixels())
+    # The panel plate sits behind the slot rows (visual V5), so "gone"
+    # means the band renders exactly what the chainless HUD renders — no
+    # lingering combo text, plate included.
+    chainless = pygame.Surface(screen.get_size())
+    chainless.fill("black")
+    draw_hud(chainless, 0, lives=3, wave=2, dash_timer=0.0)
+    assert slot_pixels() == slot_pixels(chainless)
 
 
 def test_game_over_overlay_reports_the_run_stats_headless():

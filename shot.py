@@ -1,6 +1,7 @@
 import pygame
 import blackhole
 from circleshape import CircleShape
+from comicfx import chromatic_circle
 from constants import (
     ASTEROID_MAX_RADIUS,
     HOMING_TURN_RATE_S,
@@ -40,9 +41,14 @@ class Shot(CircleShape):
 
     def __init__(self, x, y):
         super().__init__(x, y, SHOT_RADIUS)
+        # Run stats (run-stats PR): turret shots tag themselves at the fire
+        # site (drones.py) so the sweep's hit counter reads the player's
+        # accuracy, not the drones' — the bullets fly the same pipeline.
+        self.from_drone = False
 
     def draw(self, screen):
-        pygame.draw.circle(screen, PALETTE["shot"], self.position, self.radius, LINE_WIDTH)
+        # Inked comic tracer (V2): same stack, scaled to the tiny radius.
+        chromatic_circle(screen, PALETTE["shot"], self.position, self.radius, LINE_WIDTH)
 
     def update(self, dt):
         # Insanity threats: live black holes bend every shot's flight —

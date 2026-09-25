@@ -24,8 +24,10 @@ from constants import (
     SCREEN_HEIGHT,
     SCREEN_WIDTH,
 )
+from comicfx import chromatic_circle, chromatic_polygon
 from logger import log_event
 from powerups import PowerUpType
+
 import sound
 from shot import Shot
 
@@ -54,6 +56,10 @@ class Player(CircleShape):
         # callback — the ship never owns the world. None (tests, callback
         # not yet wired) makes the bomb a safe no-op.
         self.bomb_field = None
+        # Run-stat sink (run-stats PR): Game injects the run's counters at
+        # construction — the player is built before the Game exists, so the
+        # attribute starts None and every recorder call guards on it.
+        self.stats = None
 
     @property
     def invulnerable(self):
@@ -136,6 +142,13 @@ class Player(CircleShape):
         self.shield_hits -= 1
         return True
 
+    def grant_shield(self, charges=1):
+        """Stock shield absorbs outright (milestone rewards): kept until
+        spent, with no duration clock — unlike a drop-shield, whose timer
+        wipes the pool when it runs out. One shield pool on purpose: the
+        ring draw and absorb_hit read shield_hits alone."""
+        self.shield_hits += charges
+
     def clear_powerups(self):
         """Wipe every active effect — part of the full-restart reset (F4)."""
         self.powerup_timers = {}
@@ -155,7 +168,8 @@ class Player(CircleShape):
         # invulnerable ship flickers instead of sitting inside a rock unseen.
         if self.invulnerable and (self.invulnerability_timer * PLAYER_BLINK_HZ) % 1 >= 0.5:
             return
-        pygame.draw.polygon(
+        # Inked comic hull (V2): black ink, chromatic fringes, cyan stroke.
+        chromatic_polygon(
             screen,
             PALETTE["ship"],
             self.triangle(),
@@ -165,7 +179,7 @@ class Player(CircleShape):
         # player can see the next hit will be absorbed. Blinking with the
         # ship above keeps the ring honest during the grace window too.
         if self.shielded:
-            pygame.draw.circle(
+            chromatic_circle(
                 screen,
                 PALETTE["powerup_shield"],
                 self.position,
@@ -278,6 +292,11 @@ class Player(CircleShape):
             pygame.Vector2(0, 1).rotate(self.rotation + spread_degrees)
             * PLAYER_SHOOT_SPEED
         )
+        # Run stats (run-stats PR): one bullet left the ship. Counted here,
+        # per bullet — a TRIPLE volley fires three, so the summary's
+        # hit/fired accuracy can never pass 100%.
+        if self.stats is not None:
+            self.stats.record_shot()
 
     def move (self, dt):
         unit_vector = pygame.Vector2(0, 1)

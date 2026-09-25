@@ -54,8 +54,8 @@ def test_points_for_size_table(radius, expected):
 
 def test_save_roundtrip(tmp_path):
     path = tmp_path / "game_save.json"
-    write_save(path, {"high_score": 1234, "muted": True})
-    assert load_save(path) == {"high_score": 1234, "muted": True}
+    write_save(path, {"high_score": 1234, "muted": True, "volume": 70})
+    assert load_save(path) == {"high_score": 1234, "muted": True, "volume": 70}
 
 
 def test_write_preserves_unknown_keys_for_other_features(tmp_path):

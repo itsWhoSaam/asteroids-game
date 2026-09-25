@@ -52,6 +52,25 @@ HUD_FONT_SIZE = 28
 HUD_MARGIN = 12
 HUD_LINE_STEP = 34
 
+# --- Comic HUD panels (visual V5) -------------------------------------------
+# The score/lives/wave HUD, the game-over overlay lines, and the wave banner
+# sit on pre-rendered yellow halftone panels with black ink borders. Padding
+# is shared by all three surfaces; the banner's per-letter tilt and the fade
+# quantization are banner-only.
+
+PANEL_PAD_X = 14                   # px of yellow between border and text, each side
+PANEL_PAD_Y = 8                    # px of yellow between border and text, top/bottom
+
+# The banner fade renders at BANNER_ALPHA_STEPS discrete alpha bands (baked
+# into the glyph colors through the shared cache), so the number of cached
+# letter surfaces is bounded — a cache entry per (letter, band, tilt), never
+# per frame. Eight bands over a 2s flash read as a smooth glide.
+BANNER_ALPHA_STEPS = 8
+
+# Slight per-letter rotation (degrees) — comic hand-lettering, alternating
+# sign down the line. Locked small: this is a tilt, not a tumble.
+WAVE_BANNER_TILT_DEGREES = 4.0
+
 # --- Spider-Verse palette (visual V1) --------------------------------------
 # The single place color lives: every entity draw, screen fill, and the HUD
 # text constant resolve through this table, and the pixel tests assert
@@ -59,6 +78,8 @@ HUD_LINE_STEP = 34
 # Swatches are the spec's tunable "Miles-mode v1" identity.
 PALETTE = {
     "paper": (23, 18, 58),         # deep-indigo void behind everything
+    "halftone": (62, 51, 140),     # print-screen dots over the paper (V3)
+    "action_line": (40, 32, 94),   # faint radial speed lines (V3)
     "ship": (62, 230, 240),        # cyan hull (also the shield's hue family)
     "fringe_r": (255, 51, 85),     # chromatic-aberration pair (outline pass V2)
     "fringe_c": (47, 212, 255),
@@ -72,7 +93,8 @@ PALETTE = {
     "powerup_mystery": (170, 120, 255),  # violet — the ? gamble (insanity chaos)
     "spark": (255, 210, 63),       # warm comic debris (F5)
     "hud_ink": (255, 247, 230),    # warm white HUD text
-    "hud_panel": (255, 210, 63),   # yellow panels (HUD restyle, later visual PR)
+    "hud_panel": (255, 210, 63),   # yellow panels (HUD restyle, V5)
+    "hud_panel_dot": (222, 176, 40),  # darker mustard halftone dots on the panels (V5)
     "banner": (255, 210, 63),
 }
 
@@ -235,6 +257,7 @@ POWERUP_SHIELD_RING_GAP = 8        # px between hull edge and the shield ring
 PARTICLES_PER_RADIUS = 0.5         # burst count = radius × intensity × this
 PARTICLE_LIFETIME_SECONDS = 0.6
 PARTICLE_RADIUS = 3                # spark size at birth, shrinking with life
+PARTICLE_SPAWN_POP = 0.6           # birth-size boost fraction (visual V2 size-pop)
 PARTICLE_MIN_SPEED = 40            # px/s debris speed band, before intensity
 PARTICLE_MAX_SPEED = 160
 PLAYER_DEATH_BURST_INTENSITY = 4.0  # the ship's death bursts harder than rocks
@@ -459,3 +482,121 @@ SFX_CURSE = "curse"
 SFX_CURSE_DURATION = 0.45
 SFX_CURSE_TONES = (392.0, 415.3)  # G4 against a quarter-flat G#4
 SFX_CURSE_VOLUME = 0.55
+# --- Master volume (UX wave) -------------------------------------------------
+# '[' / ']' step the master volume between 0 and 100 in 10% steps; every SFX
+# scales by the level at playback (the per-cue volumes above stay baked into
+# the buffers). Mute still suppresses playback outright and never overwrites
+# the stored level. The level persists in game_save.json through the save
+# loader's read-modify-write merge.
+VOLUME_MIN = 0
+VOLUME_MAX = 100
+VOLUME_STEP = 10                   # percent per '[' / ']' press
+VOLUME_DEFAULT = 100               # fresh installs and corrupt saves land here
+HUD_TAG_GAP = 10                   # px between the VOL and MUTED tags top-right
+
+# --- Pause overlay (Tier 1) -------------------------------------------------
+# P or Esc freezes a live run: a paused flag gates every world update and a
+# dim sheet plus the PAUSED prompt render over the frozen frame. Pause is
+# run state — never persisted, and every restart unpauses. The dim blits
+# uniform surface alpha (set_alpha, the WaveBanner fade precedent) because
+# per-pixel alpha breaks the headless dummy drivers.
+PAUSE_OVERLAY_DIM_COLOR = (12, 10, 34)  # deep-void family, over the paper
+PAUSE_OVERLAY_DIM_ALPHA = 160           # 0–255 dim strength over the frame
+
+# --- Extra SFX (UX wave) ------------------------------------------------------
+# Three more cues out of the same synth block: the drones' pew (a fleet fires
+# on a cadence, so it sits under the player's shot), the shop's denied buzz
+# for an unaffordable purchase, and the wave-clear arpeggio. Every one scales
+# by master volume and honors mute at playback, exactly like the cues above.
+SFX_DRONE_FIRE = "drone_fire"
+SFX_DENIED = "denied"
+SFX_WAVE_CLEAR = "wave_clear"
+
+# Drone fire: a shorter, brighter pew than the player's own shot.
+SFX_DRONE_FIRE_DURATION = 0.07
+SFX_DRONE_FIRE_SWEEP = (1600.0, 800.0)
+SFX_DRONE_FIRE_VOLUME = 0.35
+
+# Denied: two low square thuds with a gap — the "can't afford it" buzz.
+SFX_DENIED_HZ = 130.0
+SFX_DENIED_THUD_S = 0.07
+SFX_DENIED_GAP_S = 0.04
+SFX_DENIED_VOLUME = 0.4
+
+# Wave clear: a rising major arpeggio (C5 E5 G5 C6), one humped note per slot.
+SFX_WAVE_CLEAR_NOTE_S = 0.09
+SFX_WAVE_CLEAR_ARPEGGIO = (523.25, 659.25, 783.99, 1046.50)
+SFX_WAVE_CLEAR_VOLUME = 0.45
+
+# --- Wave milestone rewards (Tier 1) -----------------------------------------
+# Every MILESTONE_WAVE_INTERVAL-th cleared wave grants the ship a shield
+# charge plus a flat credit bonus to the idle ledger, announced in the wave
+# banner. The charge is kept until spent — no duration clock, unlike a
+# drop-shield's timed window. The bonus is flat rather than income-scaled so
+# the banner announces the exact number the ledger receives.
+MILESTONE_WAVE_INTERVAL = 5
+MILESTONE_SHIELD_CHARGES = 1
+MILESTONE_CREDIT_BONUS = 500.0
+
+# --- Help overlay (Tier 1) ---------------------------------------------------
+# H toggles a keybind-list overlay over dimmed play; H again dismisses it. The
+# dim reuses the pause overlay's sheet (PAUSE_OVERLAY_DIM_* above) — one dim
+# treatment, two overlays. The rows are data: hud.help_keymap() renders shop
+# and powerup entries straight from the tables the handlers read, and the test
+# suite pins every listed key to a live handler, so the list cannot drift
+# from what the game actually answers. Help dims, it never freezes — pause is
+# the freeze, and the two overlays stack when both are open.
+HELP_FONT_SIZE = 24               # dense list font, between HUD and game-over
+HELP_LINE_STEP = 30               # px between help rows
+HELP_TITLE_STEP = 56              # px between the title and the first row
+
+# --- Low-lives warning (UX wave) ---------------------------------------------
+# At exactly LOW_LIVES_THRESHOLD lives the HUD lives line pulses in size and a
+# stepped vignette darkens the screen edges until the run leaves the gate —
+# respawn, game over, or restart. Both effects keep the headless contract: the
+# pulse re-renders the line at oscillating sizes (the size-fade precedent),
+# and the vignette blits uniform surface-alpha strips (the pause-dim
+# precedent) — never per-pixel alpha.
+LOW_LIVES_THRESHOLD = 1              # the gate: exactly this many lives left
+LOW_LIVES_PULSE_SECONDS = 0.9        # s per full size oscillation
+LOW_LIVES_PULSE_AMPLITUDE = 1.2      # peak size factor over the resting line
+LOW_LIVES_VIGNETTE_COLOR = PALETTE["fringe_r"]  # danger red, the fringe family
+LOW_LIVES_VIGNETTE_BANDS = 3         # stepped frames from the edge inward
+LOW_LIVES_VIGNETTE_BAND_WIDTH = 14   # px per band step inward
+LOW_LIVES_VIGNETTE_MAX_ALPHA = 80    # outermost band strength, 0–255
+LOW_LIVES_VIGNETTE_ALPHA_STEP = 28   # fade per band inward
+
+# --- Distinct score popups (Tier 2) ------------------------------------------
+# Points and credits both float over a wreck on the FloatingText dt-timer
+# template, and main.popup_style resolves each kind's look: a shot kill's
+# points award announces '+N pts' in the palette's warm white, while credits
+# keep their yellow '+N'. The points popup spawns a head above the credit
+# float paid on the same frame by the destruction diff, so the pair stacks
+# instead of overlapping. Display only — neither kind touches economy math.
+SCORE_COLOR = PALETTE["hud_ink"]  # warm white — reads apart from yellow credits
+SCORE_POPUP_OFFSET_Y = 24.0       # px head start above the credit float's line
+
+# --- Chip-damage cracks (Tier 2) ---------------------------------------------
+# Idle-clicked rocks wear their damage: chip damage maps to a 0-3 crack stage
+# through fractions of the same threshold take_chip kills by, and the draw
+# renders an ink crack web that deepens stage by stage (comicfx.draw_cracks).
+# Fractions, not absolute damage, so every size tier cracks on the same cue.
+# Purely visual — no economy path changes, the destruction diff reads the
+# same split() it always did.
+
+# The damage fraction that deepens the web one stage, in draw order: a rock
+# at a quarter of its chip threshold shows the first hairline pair, and the
+# last stage lands a click or two before the split. Crossing is inclusive
+# (>=): a rock AT the mark shows the next stage.
+CHIP_CRACK_FRACTIONS = (0.25, 0.50, 0.75)
+
+# --- Run stats + end-of-run summary (run-stats PR) ---------------------------
+# Per-run counters — shots fired/hit, rocks destroyed by size tier, waves
+# survived, credits earned split idle-vs-click — reported by a summary block
+# under the game-over prompt. Run-scoped only: never persisted, so no save
+# key and nothing for the restart hooks to preserve. The block renders as
+# caption panels in the V5 family, seated below the game-over overlay's
+# worst case (three lines) and above the shop panel's bottom edge.
+STATS_FONT_SIZE = 24        # dense summary rows — the help list's size
+STATS_LINE_STEP = 30        # px between summary rows
+STATS_BLOCK_GAP = 36        # px between the game-over block and the summary

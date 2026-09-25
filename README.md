@@ -21,7 +21,9 @@ SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy uv run main.py
 ```
 
 The loop runs at 60 FPS. Quit with the window close button, or Q at the
-game-over screen.
+game-over screen. Down to your last life, the HUD lives line pulses and
+a red vignette rims the screen edges until the run ends — the cue that
+the next hit is fatal.
 
 ## Controls
 
@@ -33,9 +35,11 @@ game-over screen.
 | Mouse click | Chip the rock under the cursor — the clicker verb |
 | `1`–`4` | Buy shop upgrades: Nanoblade, Fire-rate, Income, Drones |
 | `7`–`0` | Fire bought powerups: Gold Rush, Nuke, Overdrive, Chrono |
-| `R` | Restart (at game over) |
-| `Q` | Quit (at game over) |
-| `M` | Mute/unmute (persisted) |
+| `R` | Restart (at game over, or from the pause overlay) |
+| `Q` | Quit (at game over, or from the pause overlay) |
+| `P`/`Esc` | Pause/resume the run — the world freezes under a dimmed PAUSED overlay |
+| `H` | Toggle the controls overlay — every key listed over dimmed play |
+| `M` | Mute/unmute (persisted, works while paused) |
 
 ## The idle loop
 
@@ -74,6 +78,14 @@ destruction. Ten minutes in, a played session out-scales the asteroid
 field — the spawn cadence tightens per wave, but income compounds
 faster. All balance numbers live as named constants in `constants.py`;
 the values there are playtest starting points, not commitments.
+
+**Every fifth wave pays a milestone.** Clearing waves 5, 10, 15 …
+grants one shield charge plus a flat credit bonus (500 cr to start),
+announced in the wave banner (`MILESTONE WAVE 5 - SHIELD +500 CR`).
+The charge joins the shield pool and is kept until spent; the credits
+pay the idle ledger and survive a restart. Tuning lives at the end of
+`constants.py` (`MILESTONE_WAVE_INTERVAL`, `MILESTONE_SHIELD_CHARGES`,
+`MILESTONE_CREDIT_BONUS`).
 
 ## The insanity layer
 

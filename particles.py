@@ -20,6 +20,7 @@ from constants import (
     PARTICLE_MAX_SPEED,
     PARTICLE_MIN_SPEED,
     PARTICLE_RADIUS,
+    PARTICLE_SPAWN_POP,
     SHAKE_DECAY,
     SHAKE_MAX_MAGNITUDE,
     SHAKE_STOP_EPSILON,
@@ -31,6 +32,18 @@ def burst_count(base_radius, intensity=1.0):
     body's radius (and the intensity multiplier), so a larger rock dies
     into a visibly larger cloud."""
     return max(1, int(base_radius * intensity * PARTICLES_PER_RADIUS))
+
+
+def spawn_pop(life_fraction):
+    """Size-pop multiplier (visual V2): sparks are born slightly oversized
+    and ease down to their base size as life burns — a quadratic ease-out,
+    peaking at birth. Pure, so the draw site just multiplies.
+
+    Particles are the frame's cost driver at burst counts, so they skip the
+    chromatic outline passes entirely; this pop is their whole comic
+    treatment on top of the spark color (blueprint, surface 2 exclusion).
+    """
+    return 1.0 + PARTICLE_SPAWN_POP * life_fraction**2
 
 
 def burst(position, base_radius, intensity=1.0):
@@ -68,9 +81,12 @@ class Particle(CircleShape):
             self.kill()
 
     def draw(self, screen):
-        # Filled and shrinking: radius scales with the remaining life,
-        # floored at 1px so the final moments still render.
-        radius = max(1, int(round(PARTICLE_RADIUS * self.life_fraction)))
+        # Filled and shrinking: radius scales with the remaining life and
+        # the spawn pop, floored at 1px so the final moments still render.
+        radius = max(
+            1,
+            int(round(PARTICLE_RADIUS * self.life_fraction * spawn_pop(self.life_fraction))),
+        )
         pygame.draw.circle(screen, PALETTE["spark"], self.position, radius)
 
 

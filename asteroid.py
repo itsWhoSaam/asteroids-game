@@ -4,6 +4,7 @@ from logger import log_event
 
 import blackhole
 from circleshape import CircleShape
+from comicfx import chromatic_circle, draw_cracks
 from constants import (
     ASTEROID_KINDS,
     ASTEROID_MAX_RADIUS,
@@ -14,6 +15,7 @@ from constants import (
     BOSS_POINTS,
     BOSS_RADIUS_TIERS,
     BOSS_WAVE_INTERVAL,
+    CHIP_CRACK_FRACTIONS,
     CHIP_HEALTH_PER_TIER,
     LINE_WIDTH,
     MINION_CHECKPOINT_FRACTIONS,
@@ -23,6 +25,7 @@ from constants import (
     SCREEN_WIDTH,
 )
 from hud import points_for
+from stats import SOURCE_CLICK, SOURCE_IDLE
 
 # Size-tier order for the palette lookup: tier 1 (small) → 3 (large).
 ASTEROID_COLOR_KEYS = ("asteroid_s", "asteroid_m", "asteroid_l")
@@ -37,6 +40,35 @@ def asteroid_color(radius):
     """
     tier = min(ASTEROID_KINDS, max(1, round(radius / ASTEROID_MIN_RADIUS)))
     return PALETTE[ASTEROID_COLOR_KEYS[tier - 1]]
+
+
+def chip_threshold_for(radius):
+    """Chip damage a rock of this radius absorbs before dying, by size tier.
+
+    The one formula the chip system reads: the Asteroid.chip_threshold
+    property and the crack-stage gate both resolve through it, so a rock's
+    last crack and its death always agree about where the threshold sits.
+    """
+    tier = max(1, round(radius / ASTEROID_MIN_RADIUS))
+    return tier * CHIP_HEALTH_PER_TIER
+
+
+def crack_stage(chip_damage, radius):
+    """Pure crack stage 0-3 for a rock's accumulated chip damage.
+
+    The stage counts how many CHIP_CRACK_FRACTIONS marks the damage has
+    crossed as a fraction of the rock's chip threshold (crossing is
+    inclusive: at the mark, the next stage shows), clamped to the table's
+    length so an overshot damage reading can't run the web past its last
+    stage. Zero for an untouched rock — and for split children, which
+    start from fresh chip_damage and so draw uncracked again.
+    """
+    threshold = chip_threshold_for(radius)
+    if threshold <= 0 or chip_damage <= 0:
+        return 0
+    fraction = chip_damage / threshold
+    stage = sum(1 for mark in CHIP_CRACK_FRACTIONS if fraction >= mark)
+    return min(stage, len(CHIP_CRACK_FRACTIONS))
 
 
 class Asteroid(CircleShape):
@@ -59,14 +91,21 @@ class Asteroid(CircleShape):
         # the diff's second guard: bosses die through the same diff but
         # never mint credits (insanity threats).
         self.chip_damage = 0.0
+        # The crack web's pattern seed: fixed at birth so a drifting rock's
+        # cracks stick to its body; deepening reveals more of the same web.
+        self.crack_seed = random.randrange(2**32)
         self.despawned = False
         self.mintable = True
+        # Run stats (run-stats PR): the kill source the mint poll reports —
+        # take_chip flips it to "click" when a click kills; every other
+        # kill site resets it to the idle default, so a rock chipped partway
+        # and finished by a shot attributes to the shot.
+        self.killed_by = SOURCE_IDLE
 
     @property
     def chip_threshold(self):
         """Chip damage this rock absorbs before dying, by size tier."""
-        tier = max(1, round(self.radius / ASTEROID_MIN_RADIUS))
-        return tier * CHIP_HEALTH_PER_TIER
+        return chip_threshold_for(self.radius)
 
     def take_hit(self, hits=1):
         """One player-or-drone shot's worth of damage; True when this call
@@ -96,18 +135,27 @@ class Asteroid(CircleShape):
             return False
         self.chip_damage += amount
         if self.chip_damage >= self.chip_threshold:
+            self.killed_by = SOURCE_CLICK  # run stats: the click killed it
             self.split()
             return True
         return False
 
     def draw(self, screen):
-        pygame.draw.circle(
+        # Inked comic rock (V2): the tier hue stays the fill stroke; the
+        # chromatic stack adds black ink and the red/cyan fringes around it.
+        chromatic_circle(
             screen,
             asteroid_color(self.radius),
             self.position,
             self.radius,
             LINE_WIDTH
         )
+        # Chip-damage cracks (Tier 2): the chipped hull wears its damage —
+        # an ink web that deepens with the stage. Split children start from
+        # fresh chip_damage, so the web resets on every split for free.
+        stage = crack_stage(self.chip_damage, self.radius)
+        if stage > 0:
+            draw_cracks(screen, self.position, self.radius, stage, self.crack_seed)
     def update(self, dt):
         # Insanity threats: live black holes bend every trajectory — the
         # pull rides the same velocity the chrono scale multiplies below.

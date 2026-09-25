@@ -13,6 +13,7 @@ import random
 import pygame
 
 from circleshape import CircleShape
+from comicfx import cached_text, chromatic_circle
 from constants import (
     ASTEROID_MIN_RADIUS,
     LINE_WIDTH,
@@ -151,11 +152,16 @@ class PowerUp(CircleShape):
     def draw(self, screen):
         # The kind's identity color rings the pickup and stamps its label —
         # its initial, or the wildcard's "?" — so the type reads at a glance
-        # across the field.
+        # across the field. Inked pickup (V2): the ring goes through the
+        # chromatic stack like every other entity.
         color = powerup_color(self.kind)
-        pygame.draw.circle(screen, color, self.position, self.radius, LINE_WIDTH)
+        chromatic_circle(screen, color, self.position, self.radius, LINE_WIDTH)
+        # V4: the letter comes from the shared (word, color, size) cache —
+        # one render per kind for the process, not one per frame per pickup
+        # (the survey's flagged allocation pattern, killed here). The label
+        # is the kind's initial, or the wildcard's "?" (insanity chaos).
         label = PICKUP_LABELS.get(self.kind, self.kind.value[0].upper())
-        letter = label_font().render(label, True, color)
+        letter = cached_text(label, color, POWERUP_FONT_SIZE)
         screen.blit(letter, letter.get_rect(center=self.position))
 
     def update(self, dt):
