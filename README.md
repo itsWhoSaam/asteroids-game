@@ -30,13 +30,35 @@ the next hit is fatal.
 | `W`/`A`/`S`/`D` | Thrust and rotate the ship |
 | `Space` | Shoot (instant-kill shots; cooldown scales with Fire-rate levels) |
 | Mouse click | Chip the rock under the cursor — the clicker verb |
-| `1`–`4` | Buy shop upgrades: Nanoblade, Fire-rate, Income, Drones |
+| `1`–`4` | Buy shop upgrades: Nanoblade, Fire-rate, Income, Drones (during a run) |
+| `1`/`2`/`3` | Pick Easy / Normal / Hard on the start menu or the game-over screen — the choice launches the run and persists |
 | `7`–`0` | Fire bought powerups: Gold Rush, Nuke, Overdrive, Chrono |
 | `R` | Restart (at game over, or from the pause overlay) |
 | `Q` | Quit (at game over, or from the pause overlay) |
 | `P`/`Esc` | Pause/resume the run — the world freezes under a dimmed PAUSED overlay |
 | `H` | Toggle the controls overlay — every key listed over dimmed play |
 | `M` | Mute/unmute (persisted, works while paused) |
+
+## Difficulty modes
+
+The game boots into a **SELECT DIFFICULTY** menu — `1` Easy, `2` Normal,
+`3` Hard launches the run. The same three keys appear on the game-over
+screen (the prompt reads `R restart - 1/2/3 mode (…) - Q quit`), so
+switching difficulty never leaves the end-of-run flow. `R` always
+restarts the current mode.
+
+| Mode | Lives | Spawns | Rock speed |
+|---|---|---|---|
+| Easy | 5 | 25% sparser | 20% slower |
+| Normal | 3 | the shipped tuning | the shipped tuning |
+| Hard | 2 | 20% denser | 25% faster |
+
+The mode's multipliers scale the wave curve (`wave_params`) — cadence
+and speed bands keep tightening per wave inside each mode. High scores
+are tracked **per mode** (`high_score_easy` / `_normal` / `_hard`); the
+legacy `high_score` key keeps its meaning as the overall best and still
+migrates old saves into Normal's record. The choice persists and the
+menu marks it (`< saved`) on the next boot.
 
 ## The idle loop
 
@@ -88,7 +110,11 @@ pay the idle ledger and survive a restart. Tuning lives at the end of
 Everything rides in one shared file, `game_save.json` (written to the
 working directory):
 
-- `high_score` — persistent high score (written the moment it's beaten)
+- `high_score` — persistent high score (written the moment it's beaten);
+  the overall best across difficulty modes
+- `high_score_easy` / `high_score_normal` / `high_score_hard` — per-mode
+  bests (a mode's key appears the first time that mode scores)
+- `difficulty` — the selected mode for the next run
 - `muted` — sound preference
 - `idle_credits`, `idle_levels`, `idle_powerup_uses`, `idle_last_seen` —
   the idle layer's ledger
