@@ -139,7 +139,7 @@ PowerUp(player.position.x, player.position.y, PowerUpType.MYSTERY)
 hit_stop = HitStop()
 shake = Shake()
 player.bomb_field = lambda: bomb_clear(hit_stop, shake, asteroids)
-restore = patched_rolls([0.9])  # the open: a buff draw → BOMB
+restore = patched_rolls([0.84])  # the open: (0.84 − 0.25) / 0.75 × 7 = 5.5 → BOMB
 try:
     handle_collisions(asteroids, shots, player, game, powerups)
 finally:
