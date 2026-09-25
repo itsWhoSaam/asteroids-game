@@ -6,19 +6,29 @@ draw_game_over draw.
 """
 
 import json
+import math
 import sys
 
 import pygame
 
+from comicfx import (
+    build_panel,
+    cached_rotated_text,
+    cached_text,
+    shared_font,
+)
 from constants import (
     ASTEROID_MIN_RADIUS,
+    BANNER_ALPHA_STEPS,
     GAME_OVER_FONT_SIZE,
     GAME_OVER_LINE_STEP,
-    HUD_COLOR,
     HUD_FONT_SIZE,
     HUD_LINE_STEP,
     HUD_MARGIN,
     HUD_TAG_GAP,
+    PANEL_PAD_X,
+    PANEL_PAD_Y,
+    PALETTE,
     PAUSE_OVERLAY_DIM_ALPHA,
     PAUSE_OVERLAY_DIM_COLOR,
     SCORE_LARGE,
@@ -28,6 +38,7 @@ from constants import (
     SCREEN_WIDTH,
     VOLUME_DEFAULT,
     WAVE_BANNER_SECONDS,
+    WAVE_BANNER_TILT_DEGREES,
 )
 from logger import log_event
 
@@ -176,49 +187,110 @@ def hud_font():
     return _hud_font_cache
 
 
-def draw_hud(screen, score, lives=0, wave=0, muted=False, volume=None):
-    """Draw the HUD top-left. Score always shows; the lives and wave slots
-    stay hidden while zero — F2 and F3 feed them.
+# Pre-rendered comic panels (visual V5), keyed by size: built once, blitted
+# forever. Entries are shared and never mutated — a surface whose alpha is
+# animated (the banner's own plate) builds private via build_panel instead.
+_panel_cache = {}
 
-    The audio tags render top-right: while playback is muted (F6) a MUTED
-    tag sits in the corner, and a VOL N% tag (volume PR) sits beside it —
-    to its left, separated by HUD_TAG_GAP — whenever a level is known.
-    """
+
+def clear_panels():
+    """Drop the panel cache (test isolation; no run-state depends on it)."""
+    _panel_cache.clear()
+
+
+def panel_for(width, height):
+    """A pre-rendered comic panel of this size, shared per (width, height)."""
+    key = (width, height)
+    panel = _panel_cache.get(key)
+    if panel is None:
+        panel = build_panel(width, height)
+        _panel_cache[key] = panel
+    return panel
+
+
+# Panel width for the HUD plate, measured once from the widest labels the
+# slots can render — the plate is a fixed chunky comic shape, calm across
+# frames. A score past ten digits would overflow it; unreachable in play.
+_hud_panel_width = None
+
+
+def _hud_panel(rows):
+    global _hud_panel_width
+    key = ("hud", rows)
+    panel = _panel_cache.get(key)
+    if panel is not None:
+        return panel
+    font = hud_font()
+    if _hud_panel_width is None:
+        _hud_panel_width = (
+            max(
+                font.size(label)[0]
+                for label in ("Score: 999999999", "Lives: 99", "Wave: 999")
+            )
+            + 2 * PANEL_PAD_X
+        )
+    height = (rows - 1) * HUD_LINE_STEP + font.get_height() + 2 * PANEL_PAD_Y
+    panel = build_panel(_hud_panel_width, height)
+    _panel_cache[key] = panel
+    return panel
+
+
+def draw_hud(screen, score, lives=0, wave=0, muted=False, volume=None):
+    """Draw the HUD top-left on a yellow halftone panel (visual V5). Score
+    always shows; the lives and wave slots stay hidden while zero — F2 and
+    F3 feed them.
+
+    The audio tags render top-right as bare ink text — deliberately NOT on
+    panels, so the MUTED tripwire's slot stays untouched unless a tag is
+    actually showing: while playback is muted (F6) a MUTED tag sits in the
+    corner, and a VOL N% tag (volume PR) sits beside it — to its left,
+    separated by HUD_TAG_GAP — whenever a level is known.
+
+    All text renders through the shared comicfx cache: one render per
+    distinct (string, color, size), never per frame."""
     lines = [f"Score: {score}"]
     if lives:
         lines.append(f"Lives: {lives}")
     if wave:
         lines.append(f"Wave: {wave}")
-    font = hud_font()
+
+    screen.blit(
+        _hud_panel(len(lines)),
+        (HUD_MARGIN - PANEL_PAD_X, HUD_MARGIN - PANEL_PAD_Y),
+    )
     for row, text in enumerate(lines):
-        surface = font.render(text, True, HUD_COLOR)
+        surface = cached_text(text, PALETTE["hud_ink"], HUD_FONT_SIZE)
         screen.blit(surface, (HUD_MARGIN, HUD_MARGIN + row * HUD_LINE_STEP))
+
+    muted_rect = None
     if muted:
-        surface = font.render("MUTED", True, HUD_COLOR)
-        rect = surface.get_rect(topright=(SCREEN_WIDTH - HUD_MARGIN, HUD_MARGIN))
-        screen.blit(surface, rect)
+        surface = cached_text("MUTED", PALETTE["hud_ink"], HUD_FONT_SIZE)
+        muted_rect = surface.get_rect(
+            topright=(SCREEN_WIDTH - HUD_MARGIN, HUD_MARGIN)
+        )
+        screen.blit(surface, muted_rect)
     if volume is not None:
-        surface = font.render(f"VOL {volume}%", True, HUD_COLOR)
+        surface = cached_text(f"VOL {volume}%", PALETTE["hud_ink"], HUD_FONT_SIZE)
         right = SCREEN_WIDTH - HUD_MARGIN
-        if muted:
-            right -= rect.width + HUD_TAG_GAP
+        if muted_rect is not None:
+            right -= muted_rect.width + HUD_TAG_GAP
         screen.blit(surface, surface.get_rect(topright=(right, HUD_MARGIN)))
 
 
-_game_over_font_cache = None
-
-
 def game_over_font():
-    """Lazily built, larger font for the game-over banner."""
-    global _game_over_font_cache
-    if _game_over_font_cache is None:
-        _game_over_font_cache = pygame.font.Font(None, GAME_OVER_FONT_SIZE)
-    return _game_over_font_cache
+    """Larger font for the game-over banner and the wave banner — the
+    shared bold comicfx font (visual V5)."""
+    return shared_font(GAME_OVER_FONT_SIZE)
 
 
 def draw_game_over(screen, score, new_high=False):
     """Centered game-over overlay (engagement F2): final score, the
-    new-high-score state when the run set a record, and the R/Q prompt."""
+    new-high-score state when the run set a record, and the R/Q prompt —
+    each line on its own yellow halftone caption panel (visual V5).
+
+    Panel widths bucket to 32px so a run's score line reuses panels across
+    restarts instead of growing the cache per point scored; text renders
+    through the shared cache."""
     lines = [f"Game over — score {score}"]
     if new_high:
         lines.append("New high score!")
@@ -228,11 +300,33 @@ def draw_game_over(screen, score, new_high=False):
     height = len(lines) * GAME_OVER_LINE_STEP
     top = SCREEN_HEIGHT / 2 - height / 2
     for row, text in enumerate(lines):
-        surface = font.render(text, True, HUD_COLOR)
-        rect = surface.get_rect(
-            center=(SCREEN_WIDTH / 2, top + (row + 0.5) * GAME_OVER_LINE_STEP)
-        )
-        screen.blit(surface, rect)
+        surface = cached_text(text, PALETTE["hud_ink"], GAME_OVER_FONT_SIZE)
+        width = font.size(text)[0] + 2 * PANEL_PAD_X
+        width = -(-width // 32) * 32  # ceil to the 32px bucket
+        panel = panel_for(width, font.get_height() + 2 * PANEL_PAD_Y)
+        center = (SCREEN_WIDTH / 2, top + (row + 0.5) * GAME_OVER_LINE_STEP)
+        screen.blit(panel, panel.get_rect(center=center))
+        screen.blit(surface, surface.get_rect(center=center))
+
+
+def banner_alpha(timer, duration):
+    """Pure fade curve for the wave banner: this frame's alpha, quantized
+    to BANNER_ALPHA_STEPS bands — the bands are the shared render cache's
+    color keys, so a whole fade costs STEPS cached letter surfaces, never
+    one per frame. Full brightness while freshly shown, zero at the end."""
+    if timer <= 0 or duration <= 0:
+        return 0
+    fraction = min(1.0, timer / duration)
+    band = math.ceil(fraction * BANNER_ALPHA_STEPS)  # 1..STEPS
+    return round(255 * band / BANNER_ALPHA_STEPS)
+
+
+def letter_tilt(index):
+    """Pure per-letter tilt (degrees) for the wave banner: alternating
+    sign down the line — slight, deterministic hand-lettering, and the
+    rotated cache's keys recur across waves instead of accumulating."""
+    tilt = WAVE_BANNER_TILT_DEGREES
+    return tilt if index % 2 == 0 else -tilt
 
 
 _pause_dim_cache = None
@@ -257,18 +351,25 @@ def pause_dim():
 def draw_pause(screen):
     """Centered PAUSED overlay over the dimmed frozen frame (Tier 1 pause):
     the key contract — resume (P) / restart (R) / quit (Q) — is the only
-    UI a paused frame answers (mute and QUIT aside, in the event pump)."""
+    UI a paused frame answers (mute and QUIT aside, in the event pump).
+
+    Same caption-panel treatment as the game-over overlay (visual V5):
+    one yellow halftone panel per line, ink-bordered, text through the
+    shared cache — the pause prompt reads as part of the HUD family, not
+    a raw white remnant. The dim sheet keeps uniform set_alpha: it is
+    opaque color over the frame, no per-pixel alpha involved."""
     screen.blit(pause_dim(), (0, 0))
     lines = ["PAUSED", "press P to resume, R to restart, Q to quit"]
     font = game_over_font()
     height = len(lines) * GAME_OVER_LINE_STEP
     top = SCREEN_HEIGHT / 2 - height / 2
     for row, text in enumerate(lines):
-        surface = font.render(text, True, HUD_COLOR)
-        rect = surface.get_rect(
-            center=(SCREEN_WIDTH / 2, top + (row + 0.5) * GAME_OVER_LINE_STEP)
-        )
-        screen.blit(surface, rect)
+        surface = cached_text(text, PALETTE["hud_ink"], GAME_OVER_FONT_SIZE)
+        width = -(-(font.size(text)[0] + 2 * PANEL_PAD_X) // 32) * 32
+        panel = panel_for(width, font.get_height() + 2 * PANEL_PAD_Y)
+        center = (SCREEN_WIDTH / 2, top + (row + 0.5) * GAME_OVER_LINE_STEP)
+        screen.blit(panel, panel.get_rect(center=center))
+        screen.blit(surface, surface.get_rect(center=center))
 
 
 def wave_banner_text(wave, milestone_credits=None):
@@ -284,10 +385,17 @@ class WaveBanner:
     """Centered 'WAVE n' flash (engagement F3).
 
     The house dt-timer pattern — a float decremented every frame, visible
-    while positive — with the text alpha fading out over the duration.
-    V4: the text surface renders once per wave, not per frame — only the
-    surface alpha steps with the timer (the surface is this banner's own;
-    no cache entry is ever mutated).
+    while positive. V5 lettering: each character renders as its own cached
+    surface, tilted by letter_tilt, with the fade baked into the glyph
+    colors as this frame's alpha parameter (banner_alpha) — surface
+    set_alpha does not compose with per-pixel SRCALPHA, so the text never
+    touches it. The panel behind the letters is the one place surface
+    alpha still fades: it is opaque (no per-pixel alpha to conflict with),
+    the halftone print's measured mechanism, on the banner's own plate —
+    shared panel entries are borrowed, never mutated.
+
+    Surfaces resolve lazily per wave at the first draw (show() must stay
+    pygame-free: it runs in tests that never initialize pygame).
     """
 
     def __init__(self, duration=WAVE_BANNER_SECONDS):
@@ -295,7 +403,9 @@ class WaveBanner:
         self.timer = 0.0
         self.wave = 1
         self._text = wave_banner_text(1)
-        self._surface = None  # rendered lazily per wave, on the next draw
+        self._letters = None  # [(char, tilt, advance)] laid out per banner
+        self._text_width = 0.0
+        self._panel = None  # this banner's own plate; its alpha is mutated
 
     @property
     def text(self):
@@ -308,7 +418,8 @@ class WaveBanner:
         self.wave = wave
         self.timer = self.duration
         self._text = wave_banner_text(wave, milestone_credits)
-        self._surface = None  # the text changed: re-render on next draw
+        self._letters = None  # the text changed: re-layout on next draw
+        self._panel = None
 
     def update(self, dt):
         if self.timer > 0:
@@ -321,8 +432,31 @@ class WaveBanner:
     def draw(self, screen):
         if not self.visible:
             return
-        if self._surface is None:
-            self._surface = game_over_font().render(self._text, True, HUD_COLOR)
-        self._surface.set_alpha(int(255 * self.timer / self.duration))
-        rect = self._surface.get_rect(center=(SCREEN_WIDTH / 2, SCREEN_HEIGHT / 3))
-        screen.blit(self._surface, rect)
+        if self._letters is None:
+            font = game_over_font()
+            self._letters = [
+                (char, letter_tilt(index), font.size(char)[0])
+                for index, char in enumerate(self._text)
+            ]
+            self._text_width = sum(advance for _, _, advance in self._letters)
+            self._panel = build_panel(
+                self._text_width + 2 * PANEL_PAD_X,
+                font.get_height() + 2 * PANEL_PAD_Y,
+            )
+
+        alpha = banner_alpha(self.timer, self.duration)
+        center = (SCREEN_WIDTH / 2, SCREEN_HEIGHT / 3)
+        self._panel.set_alpha(alpha)  # opaque plate: surface alpha is safe
+        screen.blit(self._panel, self._panel.get_rect(center=center))
+
+        color = (*PALETTE["hud_ink"], alpha)  # the fade lives in the glyphs
+        x = SCREEN_WIDTH / 2 - self._text_width / 2
+        for char, tilt, advance in self._letters:
+            if char != " ":
+                surface = cached_rotated_text(
+                    char, color, GAME_OVER_FONT_SIZE, tilt
+                )
+                screen.blit(
+                    surface, surface.get_rect(center=(x + advance / 2, center[1]))
+                )
+            x += advance
