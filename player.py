@@ -50,6 +50,10 @@ class Player(CircleShape):
         # is the shared cooldown + decay clock.
         self.velocity = pygame.Vector2(0, 0)
         self.dash_timer = 0.0
+        # Bomb pickup (insanity chaos): main injects the field-clear
+        # callback — the ship never owns the world. None (tests, callback
+        # not yet wired) makes the bomb a safe no-op.
+        self.bomb_field = None
 
     @property
     def invulnerable(self):
@@ -64,6 +68,24 @@ class Player(CircleShape):
     def has_triple(self):
         """TRIPLE active: shots leave in a three-way spread this frame (F4)."""
         return self.powerup_timers.get(PowerUpType.TRIPLE.value, 0.0) > 0
+
+    @property
+    def has_pierce(self):
+        """PIERCE active (insanity chaos): shots drill through plain rocks
+        this frame instead of dying on impact."""
+        return self.powerup_timers.get(PowerUpType.PIERCE.value, 0.0) > 0
+
+    @property
+    def has_homing(self):
+        """HOMING active (insanity chaos): every friendly shot steers toward
+        the nearest asteroid while the timer runs."""
+        return self.powerup_timers.get(PowerUpType.HOMING.value, 0.0) > 0
+
+    @property
+    def cursed_reverse(self):
+        """REVERSE curse (insanity chaos): the controls answer backwards
+        while its clock runs — steering, thrust, and brake all flip."""
+        return self.powerup_timers.get(PowerUpType.REVERSE.value, 0.0) > 0
 
     @property
     def shielded(self):
@@ -84,7 +106,22 @@ class Player(CircleShape):
     def activate_powerup(self, kind):
         """Turn a collected pickup on: (re)arm its duration from the
         constants table; the shield stocks its hit count. Data-driven (F4):
-        the idle-economy follow-up retunes constants, not this code."""
+        the idle-economy follow-up retunes constants, not this code.
+
+        Insanity chaos adds the instant types — neither arms a clock:
+        the bomb fires its injected field-clear callback now, and the
+        disarm reveal strips everything running."""
+        if kind is PowerUpType.BOMB:
+            if self.bomb_field is not None:
+                self.bomb_field()
+            return
+        if kind is PowerUpType.DISARM:
+            # The reveal sting: the shield's unspent charges and every
+            # running effect timer evaporate at once — a lucky stack dies
+            # the moment the curse shows itself.
+            self.powerup_timers.clear()
+            self.shield_hits = 0
+            return
         self.powerup_timers[kind.value] = POWERUP_DURATION_S[kind.value]
         if kind is PowerUpType.SHIELD:
             self.shield_hits = POWERUP_SHIELD_HITS
@@ -178,14 +215,18 @@ class Player(CircleShape):
             if self.dash_timer == 0:
                 self.velocity.update((0, 0))  # glide over: clean handback
 
+        # REVERSE curse (insanity chaos): one sign flips every answer the
+        # controls get — the same keys, the backwards ship. The dash is not
+        # flipped: it fires along the nose, which the cursed steering aims.
+        sign = -1.0 if self.cursed_reverse else 1.0
         if keys[pygame.K_a]:
-            self.rotate(-dt)
+            self.rotate(-dt * sign)
         if keys[pygame.K_d]:
-            self.rotate(dt)
+            self.rotate(dt * sign)
         if keys[pygame.K_w]:
-            self.move(dt)
+            self.move(dt * sign)
         if keys[pygame.K_s]:
-            self.move(-dt)
+            self.move(-dt * sign)
         # Insanity threats: gravity drifts the ship toward any live well at
         # half strength (BLACK_HOLE_PLAYER_FACTOR) — a position drift, not
         # velocity: the dash owns the only velocity the ship has.

@@ -20,7 +20,7 @@ Headless run (sandbox/CI — no display needed):
 SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy uv run main.py
 ```
 
-The game loops at 60 FPS until the window QUIT event (or Q at the game-over screen). A player-asteroid collision costs one of three lives — the ship respawns centered with a 2s invulnerability blink — and at zero lives a game-over overlay appears (R restarts, Q quits). Destroyed non-small asteroids have a 15% chance to drop a timed pickup: SHIELD absorbs one hit (ring on the ship), RAPID cuts the shoot cooldown ×0.4, TRIPLE fires a three-way spread — each lasts 8s (R-free retuning lives in `constants.py`). Sound effects are synthesized procedurally at startup (no binary assets) — shoot, three explosion pitches by asteroid size, pickup, game over — and `M` toggles mute (persisted in `game_save.json`; a MUTED indicator shows top-right while muted). Kill with timeout/interrupt for headless runs.
+The game loops at 60 FPS until the window QUIT event (or Q at the game-over screen). A player-asteroid collision costs one of three lives — the ship respawns centered with a 2s invulnerability blink — and at zero lives a game-over overlay appears (R restarts, Q quits). Destroyed non-small asteroids have a 15% chance to drop a pickup, and 40% of those drops are a violet `?` mystery pickup whose contents roll only on collect: 25% a curse (REVERSE flips the controls for 6s; DISARM strips the shield and every running effect on reveal), otherwise an equal draw from the six buffs — SHIELD absorbs one hit (ring on the ship), RAPID cuts the shoot cooldown ×0.4, TRIPLE fires a three-way spread, PIERCE lets shots drill through rocks, HOMING bends shots toward the nearest rock, BOMB clears the whole field instantly — timed effects last 8s, the reverse curse 6s (R-free retuning lives in `constants.py`). Sound effects are synthesized procedurally at startup (no binary assets) — shoot, three explosion pitches by asteroid size, pickup, game over, plus the insanity cues (dash, combo break, saucer, boss, black hole, curse sting) — and `M` toggles mute (persisted in `game_save.json`; a MUTED indicator shows top-right while muted). Kill with timeout/interrupt for headless runs.
 
 ## Local Verification
 
@@ -51,7 +51,7 @@ Flat, single-app repo — all source at root (depth ≤ 2, no sub-apps):
 | `player.py` | `Player` — triangle ship, rotate/move/shoot |
 | `asteroid.py` | `Asteroid` — movement, `split()` on hit |
 | `asteroidfield.py` | `AsteroidField` — spawns asteroids from screen edges on a timer; cadence and speed band come from the pure `wave_params(wave)` (engagement F3) |
-| `powerups.py` | `PowerUp` pickups — drifting SHIELD/RAPID/TRIPLE drops; pure `drops_powerup`/`pick_type` rolls; effect data lives in `constants.py` tables (engagement F4) |
+| `powerups.py` | `PowerUp` pickups — six buffs, two mystery-only curses, and the violet `?` wildcard; pure `drops_powerup`/`drop_type`/`pick_type`/`mystery_pick_type` rolls; effect data lives in `constants.py` tables (engagement F4, insanity chaos) |
 | `particles.py` | `Particle` debris + `Shake` — pure `burst_count` sizing, `burst()` spawner wired at the sweep's destruction site and in `Game.player_hit`; shake decays exponentially and offsets the draw origin only (engagement F5) |
 | `shot.py` | `Shot` — player bullets |
 | `sound.py` | Procedural SFX — stdlib `array`/`math` envelopes in `pygame.mixer.Sound`, built at startup; `play()`/`play_explosion()` degrade to a silent no-op on any mixer failure; mute state set via `set_muted` (engagement F6) |

@@ -16,6 +16,8 @@ from circleshape import CircleShape
 from constants import (
     ASTEROID_MIN_RADIUS,
     LINE_WIDTH,
+    MYSTERY_DROP_CHANCE,
+    MYSTERY_CURSE_CHANCE,
     PALETTE,
     POWERUP_DROP_CHANCE,
     POWERUP_DRIFT_SPEED,
@@ -25,22 +27,54 @@ from constants import (
 
 
 class PowerUpType(enum.StrEnum):
-    """The three pickups. Values key the constants tables (F4)."""
+    """The pickups (insanity chaos grows the pool from three to nine).
+    Values key the constants tables (F4); MYSTERY is the wildcard — its
+    contents roll only when collected."""
 
     SHIELD = "shield"
     RAPID = "rapid"
     TRIPLE = "triple"
+    PIERCE = "pierce"
+    HOMING = "homing"
+    BOMB = "bomb"
+    REVERSE = "reverse"
+    DISARM = "disarm"
+    MYSTERY = "mystery"
 
 
-# Uniform selection pool; this order fixes the pick_type roll mapping.
-POWERUP_TYPES = (PowerUpType.SHIELD, PowerUpType.RAPID, PowerUpType.TRIPLE)
+# The six buffs (insanity chaos): direct drops draw evenly from this pool,
+# and a mystery open falls back to it 75% of the time. Order fixes both
+# roll mappings (pick_type and mystery_pick_type).
+BUFF_TYPES = (
+    PowerUpType.SHIELD,
+    PowerUpType.RAPID,
+    PowerUpType.TRIPLE,
+    PowerUpType.PIERCE,
+    PowerUpType.HOMING,
+    PowerUpType.BOMB,
+)
+
+# The two curses: mystery contents only. A curse landing on the field as a
+# visible, avoidable letter would be a non-event — hidden inside the ?
+# pickup, the reveal is the gamble ("stripped on reveal" only means
+# something when the curse had a hiding place).
+CURSE_TYPES = (PowerUpType.REVERSE, PowerUpType.DISARM)
+
+# Direct-drop selection pool: the six buffs (grew from the original three —
+# the Curses ride the mystery wildcard instead).
+POWERUP_TYPES = BUFF_TYPES
+
+# The ? pickup's stamp: the wildcard reads as a question mark, not an M —
+# the gamble is the point. Every other kind stamps its initial.
+PICKUP_LABELS = {PowerUpType.MYSTERY: "?"}
 
 # Per-kind palette keys (visual V1): each pickup keeps its effect identity
-# color — SHIELD cyan, RAPID orange, TRIPLE magenta.
+# color — SHIELD cyan, RAPID orange, TRIPLE magenta, and the ? violet.
 POWERUP_COLOR_KEYS = {
     PowerUpType.SHIELD: "powerup_shield",
     PowerUpType.RAPID: "powerup_rapid",
     PowerUpType.TRIPLE: "powerup_triple",
+    PowerUpType.MYSTERY: "powerup_mystery",
 }
 
 
@@ -65,6 +99,29 @@ def pick_type(roll):
     POWERUP_TYPES. Clamped so even a sloppy 1.0 roll picks a real type."""
     index = min(int(roll * len(POWERUP_TYPES)), len(POWERUP_TYPES) - 1)
     return POWERUP_TYPES[index]
+
+
+def drop_type(roll):
+    """Pure: what a paid drop is (insanity chaos). The first 40% of the roll
+    is the ? wildcard — its contents roll only on collect — the rest an
+    equal draw from the six buffs. Curses never drop directly: the reveal
+    is the gamble, and the drop roll's remap mirrors mystery_pick_type's."""
+    if roll < MYSTERY_DROP_CHANCE:
+        return PowerUpType.MYSTERY
+    buff_roll = (roll - MYSTERY_DROP_CHANCE) / (1.0 - MYSTERY_DROP_CHANCE)
+    return pick_type(buff_roll)
+
+
+def mystery_pick_type(roll):
+    """Pure decision for a collected ? pickup (insanity chaos): the first
+    25% of the roll is the sting — a curse, equal odds reverse/disarm —
+    the rest an equal draw from the six buffs. The reveal logs
+    curse_revealed and plays SFX_CURSE: the sound that makes the next ?
+    hesitate."""
+    if roll < MYSTERY_CURSE_CHANCE:
+        return CURSE_TYPES[int(roll / MYSTERY_CURSE_CHANCE * len(CURSE_TYPES))]
+    buff_roll = (roll - MYSTERY_CURSE_CHANCE) / (1.0 - MYSTERY_CURSE_CHANCE)
+    return BUFF_TYPES[int(buff_roll * len(BUFF_TYPES)) % len(BUFF_TYPES)]
 
 
 _label_font_cache = None
@@ -92,11 +149,13 @@ class PowerUp(CircleShape):
         )
 
     def draw(self, screen):
-        # The kind's identity color rings the pickup and stamps its initial,
-        # so the type reads at a glance across the field.
+        # The kind's identity color rings the pickup and stamps its label —
+        # its initial, or the wildcard's "?" — so the type reads at a glance
+        # across the field.
         color = powerup_color(self.kind)
         pygame.draw.circle(screen, color, self.position, self.radius, LINE_WIDTH)
-        letter = label_font().render(self.kind.value[0].upper(), True, color)
+        label = PICKUP_LABELS.get(self.kind, self.kind.value[0].upper())
+        letter = label_font().render(label, True, color)
         screen.blit(letter, letter.get_rect(center=self.position))
 
     def update(self, dt):

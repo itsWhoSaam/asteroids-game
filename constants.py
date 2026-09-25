@@ -69,6 +69,7 @@ PALETTE = {
     "powerup_shield": (62, 230, 240),  # effect identity colors (F4)
     "powerup_rapid": (255, 154, 62),
     "powerup_triple": (255, 78, 205),
+    "powerup_mystery": (170, 120, 255),  # violet — the ? gamble (insanity chaos)
     "spark": (255, 210, 63),       # warm comic debris (F5)
     "hud_ink": (255, 247, 230),    # warm white HUD text
     "hud_panel": (255, 210, 63),   # yellow panels (HUD restyle, later visual PR)
@@ -211,6 +212,13 @@ POWERUP_DURATION_S = {
     "shield": 8.0,
     "rapid": 8.0,
     "triple": 8.0,
+    # Insanity chaos: the new timed effects join the same table — the
+    # runtime source of every duration. BOMB and DISARM are instant (they
+    # fire and strip in activate_powerup, never arming a clock) and MYSTERY
+    # resolves on collect, so none of the three has a duration entry.
+    "pierce": 8.0,
+    "homing": 8.0,
+    "reverse": 6.0,  # = CURSE_REVERSE_S below — the readable alias
 }
 POWERUP_RAPID_COOLDOWN_MULT = 0.4  # RAPID multiplies the shoot cooldown
 POWERUP_TRIPLE_SPREAD = 20.0       # degrees between the three TRIPLE shots
@@ -416,3 +424,38 @@ SFX_BLACKHOLE_DURATION = 1.1
 SFX_BLACKHOLE_SWEEP = (110.0, 45.0)
 SFX_BLACKHOLE_BRIGHTNESS = 0.35
 SFX_BLACKHOLE_VOLUME = 0.5
+
+# --- Insanity chaos: mystery & curse pickups --------------------------------
+# All numbers here are playtest starting values from the insanity spec; none
+# is structural. Every tunable lives in this one block — tuning happens
+# here, never in gameplay code.
+
+# The mystery gamble: 40% of paid drops are the '?' wildcard (known buffs
+# get rarer), and a ? open is a 25% sting — a curse (equal odds) instead of
+# a buff. Curses never drop directly: the reveal is the gamble.
+MYSTERY_DROP_CHANCE = 0.40
+MYSTERY_CURSE_CHANCE = 0.25
+# The controls answer backwards while the reverse curse runs. The duration
+# table above is the runtime source (activate_powerup reads it like every
+# other effect); this is the readable alias the curse logic and tests use.
+CURSE_REVERSE_S = POWERUP_DURATION_S["reverse"]
+
+# Homing shots steer toward the nearest asteroid at up to this heading
+# change per second — speed preserved, so the buff bends bullets, not
+# accelerates them.
+HOMING_TURN_RATE_S = 360.0
+
+# The bomb pickup's field clear rocks the screen: harder than one large
+# rock, softer than losing a life (SHAKE_PLAYER_DEATH).
+SHAKE_BOMB = 12.0
+
+# The ? pickup's identity hue: violet, keyed through the palette (visual V1)
+# like every other color site.
+MYSTERY_COLOR = PALETTE["powerup_mystery"]
+
+# Curse reveal: a dissonant sting — two tones a rubbed half-step apart,
+# sinking together. The sound that makes the next ? hesitate.
+SFX_CURSE = "curse"
+SFX_CURSE_DURATION = 0.45
+SFX_CURSE_TONES = (392.0, 415.3)  # G4 against a quarter-flat G#4
+SFX_CURSE_VOLUME = 0.55

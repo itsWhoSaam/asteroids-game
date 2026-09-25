@@ -32,6 +32,10 @@ from constants import (
     SFX_COMBO_BREAK_DURATION,
     SFX_COMBO_BREAK_SWEEP,
     SFX_COMBO_BREAK_VOLUME,
+    SFX_CURSE,
+    SFX_CURSE_DURATION,
+    SFX_CURSE_TONES,
+    SFX_CURSE_VOLUME,
     SFX_DASH,
     SFX_DASH_BRIGHTNESS,
     SFX_DASH_DURATION,
@@ -96,6 +100,8 @@ def init():
             SFX_SAUCER: build_saucer(),
             SFX_BOSS: build_boss(),
             SFX_BLACKHOLE: build_blackhole(),
+            # Insanity chaos:
+            SFX_CURSE: build_curse(),
         }
     except Exception as exc:
         _sounds = {}
@@ -325,3 +331,22 @@ def build_blackhole():
         return (noise + tone) * max(0.0, window) * SFX_BLACKHOLE_VOLUME
 
     return _make_sound(_render(SFX_BLACKHOLE_DURATION, wave))
+
+
+def build_curse():
+    """A dissonant sting (insanity chaos): two tones a rubbed half-step
+    apart, sinking together — the sound that makes the next ? hesitate."""
+    tone_a, tone_b = SFX_CURSE_TONES
+
+    def wave(t, progress):
+        window = min(progress / 0.1, (1.0 - progress) / 0.6, 1.0)
+        # Both tones sink ~15% together — a falling pair that never
+        # resolves, the beat widening as it dies.
+        slide = 1.0 - 0.15 * progress
+        sting = (
+            chirp(t, tone_a * slide, tone_a * slide * 0.85, SFX_CURSE_DURATION) * 0.5
+            + chirp(t, tone_b * slide, tone_b * slide * 0.85, SFX_CURSE_DURATION) * 0.5
+        )
+        return sting * max(0.0, window) * SFX_CURSE_VOLUME
+
+    return _make_sound(_render(SFX_CURSE_DURATION, wave))
