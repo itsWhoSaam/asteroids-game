@@ -32,7 +32,15 @@ from comicfx import Burst, build_background_layers, burst_word, spawn_burst
 from economy import Economy
 from drones import DroneBay, OfflineBanner, drone_dps
 from game import Game
-from hud import WaveBanner, draw_game_over, draw_hud, draw_pause, hud_font, points_for
+from hud import (
+    WaveBanner,
+    draw_game_over,
+    draw_help,
+    draw_hud,
+    draw_pause,
+    hud_font,
+    points_for,
+)
 from logger import log_state, log_event
 from particles import Particle, Shake, burst
 from player import Player
@@ -455,6 +463,13 @@ def main():
                 # overlay. Game over owns its own screen — toggle_pause
                 # refuses there — and mute above stays live while frozen.
                 game.toggle_pause()
+            if event.type == pygame.KEYDOWN and event.key == pygame.K_h:
+                # Tier 1 help: H toggles the keybind list over dimmed play.
+                # Documentation, not a world change — it dims but never
+                # freezes, so it answers while frozen too (the pause keys
+                # above stay live with the list up). Game over keeps its
+                # own screen; toggle_help refuses there, same as pause.
+                game.toggle_help()
             if event.type == pygame.KEYDOWN and (
                     game.state == "game_over" or game.paused):
                 # R restarts, Q quits (engagement F2). The pause overlay
@@ -558,6 +573,8 @@ def main():
             draw_game_over(screen, game.score, new_high=game.new_high)
         elif game.paused:
             draw_pause(screen)  # the frozen world dims under the prompt
+        if game.help_open:
+            draw_help(screen)  # over dimmed play — or over the paused dim
         banner.draw(screen)  # on top: the WAVE n flash overlays everything
 
         pygame.display.flip()
