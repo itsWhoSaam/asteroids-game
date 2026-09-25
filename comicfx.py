@@ -313,21 +313,28 @@ _rotated_cache = {}
 
 
 def cached_rotated_text(text, color, size, angle):
-    """A rotated copy of a cached text surface, shared per
-    (text, color, size, angle).
+    """One rotated glyph, cached per (text, color, size, angle) — the wave
+    banner's letter path.
 
-    The wave banner's per-letter tilt: each (letter, alpha band, tilt)
-    combination rotates exactly once for the process lifetime — pygame's
-    transform allocates a new surface per call, so rotation per frame
-    would repeat the allocation pattern the render cache exists to kill.
-    Entries are borrowed, never mutated (no set_alpha on rotated copies:
-    their fade bakes into the color, see hud.WaveBanner)."""
+    The color may carry a per-frame alpha (the fade parameter):
+    pygame's font render ignores a color's alpha channel, so the band's
+    alpha is scaled into the glyph's antialias coverage with a
+    BLEND_RGBA_MULT fill on the rotated copy — per-pixel alpha without
+    surface set_alpha (which does not compose with SRCALPHA) and without
+    re-rendering text per frame. The full-ink base glyph comes from the
+    shared text cache; band surfaces are per-key and never shared."""
     if angle == 0:
         return cached_text(text, color, size)
     key = (text, color, size, angle)
     surface = _rotated_cache.get(key)
     if surface is None:
-        surface = pygame.transform.rotate(cached_text(text, color, size), angle)
+        base = cached_text(text, color[:3], size)
+        surface = pygame.transform.rotate(base, angle)
+        if len(color) > 3 and color[3] < 255:
+            surface.fill(
+                (255, 255, 255, color[3]),
+                special_flags=pygame.BLEND_RGBA_MULT,
+            )
         _rotated_cache[key] = surface
     return surface
 
