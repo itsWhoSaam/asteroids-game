@@ -308,9 +308,10 @@ def test_bomb_clear_splits_the_field_through_the_nuke_path(tmp_path):
     assert len(asteroids) == 0
     wrecks = destroyed_asteroids(prev, asteroids)
     assert any(isinstance(wreck, Boss) for wreck in wrecks)
-    # Only the two plain rocks mint — the boss's mintable=False keeps the
-    # bomb from becoming a credit wreck for the economy diff.
-    assert sum(wreck.mintable for wreck in wrecks) == 2
+    # All three wrecks mint (the capstone payoff): the boss's death is a
+    # paid destruction like any other, and the bomb is still no credit
+    # wreck for the economy diff beyond the ordinary payouts.
+    assert sum(wreck.mintable for wreck in wrecks) == 3
     assert hit_stop.frozen  # several deaths in one call: the multi beat
     assert shake.magnitude > 0  # the screen rocks
     assert game.combo.chain == 0  # combo-free, exactly like the nuke

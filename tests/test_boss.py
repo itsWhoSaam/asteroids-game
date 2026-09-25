@@ -1,13 +1,15 @@
-"""Insanity threats: the boss — pure tier math, the HP-pool take_hit with
-the 70/40/15% minion ladder, chip immunity, and the money guarantees
-(never a credit wreck, killed only through the ordinary destruction paths).
+"""Insanity threats + capstone payoff: the boss — pure tier math, the
+HP-pool take_hit with the 70/40/15% minion ladder, chip immunity, the hit
+flash, and the money contract (its death mints through the ordinary diff,
+pays one guaranteed chaos-table drop, and scores through register_kill).
 
 Failure signatures the tests must catch (spec): a boss that dies to click
 chips; minions at the wrong thresholds; the boss exempted from the nuke or
-restart; score inflation through the diff; a boss wave that double-spawns
-or never advances.
+restart; a death that skips the mint or drops nothing; a boss wave that
+double-spawns or never advances.
 """
 
+import json
 import random
 
 import pygame
@@ -17,20 +19,27 @@ from asteroid import Asteroid, Boss, boss_tier
 from asteroidfield import AsteroidField
 from constants import (
     ASTEROID_MIN_RADIUS,
+    BOSS_DRIFT_SPEED,
+    BOSS_HIT_FLASH_S,
     BOSS_HP_PER_TIER,
     BOSS_POINTS,
     BOSS_RADIUS_TIERS,
+    LINE_WIDTH,
     MINION_RADIUS_MULTIPLIER,
+    PALETTE,
     SCREEN_HEIGHT,
     SCREEN_WIDTH,
 )
+from economy import Economy
 from game import Game
-from hud import WaveBanner
+from hud import WaveBanner, points_for
+from powerups import BUFF_TYPES, PowerUp, PowerUpType, drop_type, powerup_color
 from main import (
     destroyed_asteroids,
     handle_collisions,
     maybe_advance_wave,
     maybe_boss_wave,
+    mint_destructions,
     nuke_field,
 )
 from player import Player
@@ -50,6 +59,9 @@ def make_world(tmp_path):
     Asteroid.containers = (asteroids, updatable, drawable)
     Shot.containers = (shots, updatable, drawable)
     AsteroidField.containers = (updatable, drawable)
+    # The boss payoff drops real pickups: the PowerUp joins the same
+    # containers main wires, so the group test reads the actual spawn.
+    PowerUp.containers = (powerups, updatable, drawable)
 
     player = Player(SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2)
     game = Game(player, asteroids, shots, powerups,
@@ -177,7 +189,7 @@ def test_a_tier_one_boss_never_reaches_the_third_checkpoint(tmp_path):
     assert count_minions(asteroids) == 4  # death spawns nothing extra
 
 
-# --- the money guarantees --------------------------------------------------------
+# --- the money contract --------------------------------------------------------
 
 
 def test_chip_clicks_never_kill_the_boss():
@@ -187,18 +199,21 @@ def test_chip_clicks_never_kill_the_boss():
     assert boss.hp == boss.max_hp
 
 
-def test_the_boss_never_drops_pickups_or_mints_credits(tmp_path):
-    """mintable=False is the diff's data guard: the boss routes through the
-    ordinary destruction diff but is never a credit wreck."""
+def test_boss_death_mints_credits_through_the_diff(tmp_path):
+    """The capstone payoff: a boss wreck is a paid destruction — the mint
+    poll pays what any large rock pays (points_for × the income multiplier,
+    1.0 at zero levels) right after logging the defeat."""
     game, field, player, asteroids, shots, powerups = make_world(tmp_path)
+    economy = Economy(save_path=tmp_path / "economy.json")
     boss = Boss(400, 300, 1)
     prev = set(asteroids)
 
     boss.kill()  # any death source: shots, the nuke, restart
-    wrecks = destroyed_asteroids(prev, asteroids)
+    paid = mint_destructions(prev, asteroids, economy, game.stats, wave=5)
 
-    assert boss in wrecks  # it flows through the ordinary diff
-    assert not boss.mintable  # and the diff skips its mint
+    assert paid == [(boss, points_for(boss.radius))]  # the ordinary payout
+    assert economy.credits == points_for(boss.radius)  # 1.0 multiplier
+    assert boss.mintable  # the data guard the poll reads
 
 
 def test_defeat_pays_points_through_register_kill(tmp_path):
@@ -236,7 +251,7 @@ def test_nuke_clears_the_boss_through_the_ordinary_diff(tmp_path):
 
     wrecks = destroyed_asteroids(prev, asteroids)
     assert any(isinstance(wreck, Boss) for wreck in wrecks)
-    assert not any(wreck.mintable and isinstance(wreck, Boss) for wreck in wrecks)
+    assert all(wreck.mintable for wreck in wrecks)  # the boss pays too
 
 
 # --- the boss-wave spawner -------------------------------------------------------
@@ -326,27 +341,54 @@ def test_the_killing_blow_through_the_sweep_pays_boss_points(tmp_path):
     assert game.score == BOSS_POINTS
 
 
-def test_the_boss_never_rolls_for_a_pickup_drop(tmp_path, monkeypatch):
-    """The drop-roll guard sits before the roll: sweeping a dying boss must
-    never even draw a random number — a boss dropping a violet ? would be
-    an economy leak wearing a mystery costume."""
+def test_boss_death_drops_exactly_one_pickup(tmp_path):
+    """The capstone payoff: a boss death always pays one drop from the
+    ordinary chaos tables — any roll, exactly one pickup, never zero."""
     game, field, player, asteroids, shots, powerups = make_world(tmp_path)
     game.wave = 5
     field.start_wave()
     maybe_boss_wave(game, field)
     boss = list(asteroids)[0]
+    # The boss spawns at screen center — the player's spot too. Step the
+    # ship aside or the sweep's pickup pass collects the drop the same
+    # frame it spawns, inside the player standing in the boss.
+    player.position = pygame.Vector2(200, SCREEN_HEIGHT / 2)
     boss.hp = 1
     Shot(boss.position.x, boss.position.y)
-
-    def forbidden_roll():
-        raise AssertionError("the boss reached the pickup drop roll")
-
-    monkeypatch.setattr(random, "random", forbidden_roll)
 
     handle_collisions(asteroids, shots, player, game, powerups)
 
     assert not boss.alive()  # the killing blow still landed
-    assert len(powerups) == 0
+    assert len(powerups) == 1  # the guaranteed prize
+    dropped = list(powerups)[0]
+    assert dropped.kind in BUFF_TYPES + (PowerUpType.MYSTERY,)
+
+    events = [
+        json.loads(line)
+        for line in (tmp_path / "game_events.jsonl").read_text().splitlines()
+    ]
+    spawned = [e for e in events if e["type"] == "powerup_spawned"]
+    assert [e["powerup_type"] for e in spawned] == [dropped.kind.value]
+    assert spawned[0]["boss"] is True  # the event marks the payoff source
+
+
+def test_boss_drop_reads_the_same_chaos_tables(tmp_path, monkeypatch):
+    """The guaranteed drop is not a special pool: the pinned roll produces
+    exactly what drop_type hands any plain-rock drop."""
+    game, field, player, asteroids, shots, powerups = make_world(tmp_path)
+    game.wave = 5
+    field.start_wave()
+    maybe_boss_wave(game, field)
+    boss = list(asteroids)[0]
+    player.position = pygame.Vector2(200, SCREEN_HEIGHT / 2)  # out of the drop
+    boss.hp = 1
+    Shot(boss.position.x, boss.position.y)
+    monkeypatch.setattr(random, "random", lambda: 0.84)
+
+    handle_collisions(asteroids, shots, player, game, powerups)
+
+    dropped = list(powerups)[0]
+    assert dropped.kind is drop_type(0.84)
 
 
 def test_update_slides_a_dragged_boss_along_the_edge_instead_of_culling(tmp_path):
@@ -363,3 +405,82 @@ def test_update_slides_a_dragged_boss_along_the_edge_instead_of_culling(tmp_path
 
     assert boss.alive() and not boss.despawned  # never culled
     assert boss.position.x >= boss.radius  # clamped just inside the edge
+
+
+# --- the capstone feedback: flash, armor rings, drift ----------------------------
+
+
+def test_a_landed_shot_lights_the_flash_and_it_decays():
+    """Hit feedback: a landed shot lights the hull for BOSS_HIT_FLASH_S of
+    sim time, decays per update — so a pause holds the blink — and lands
+    exactly at zero, never negative."""
+    boss = Boss(400, 300, 1)
+    assert boss.hit_flash == 0.0
+
+    boss.take_hit()
+    assert boss.hit_flash == BOSS_HIT_FLASH_S  # the hull lights
+
+    for _ in range(6):  # 0.1 s of sim time
+        boss.update(1 / 60)
+    assert 0.0 < boss.hit_flash < BOSS_HIT_FLASH_S  # decaying
+
+    boss.update(BOSS_HIT_FLASH_S)  # the blink is over
+    assert boss.hit_flash == 0.0
+
+
+def test_boss_draw_renders_rings_and_flash_headless(tmp_path):
+    """The layered-armor look renders under the dummy driver: the flash
+    ring rides the hull's outside while the timer runs and disappears with
+    it — plain ink draws, no per-pixel alpha."""
+    pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
+    screen = pygame.display.get_surface()
+    boss = Boss(400, 300, 2)
+    boss.take_hit()  # the flash is lit
+
+    boss.draw(screen)
+    probe = (
+        int(boss.position.x + boss.radius + LINE_WIDTH),  # mid flash band
+        int(boss.position.y),
+    )
+    assert screen.get_at(probe)[:3] == PALETTE["hud_ink"]  # the flash ring
+
+    screen.fill((0, 0, 0))
+    boss.hit_flash = 0.0
+    boss.draw(screen)
+    assert screen.get_at(probe)[:3] != PALETTE["hud_ink"]  # gone with the blink
+
+
+def test_every_drop_rollable_kind_has_a_palette_color():
+    """Table completeness: every kind drop_type can hand a pickup renders.
+    PIERCE/HOMING/BOMB shipped without color keys and crashed on their
+    first draw — the guaranteed boss drop rolls them every fight."""
+    for kind in BUFF_TYPES + (PowerUpType.MYSTERY,):
+        color = powerup_color(kind)
+        assert isinstance(color, tuple) and len(color) == 3
+        assert all(0 <= channel <= 255 for channel in color), \
+            f"{kind.value} resolves to a real palette RGB"
+
+
+def test_boss_drift_scales_with_the_difficulty_multiplier(tmp_path):
+    """The capstone composition: the boss's drift speed scales by the
+    mode's multiplier — Easy glides, Hard stalks. The wave_params boss
+    dict stays mode-independent (pinned by the difficulty tests); the
+    entity adapts at spawn."""
+    game, field, player, asteroids, shots, powerups = make_world(tmp_path)
+    game.wave = 5
+
+    game.set_mode("easy")
+    field.start_wave()
+    maybe_boss_wave(game, field)
+    easy_speed = list(asteroids)[0].velocity.length()
+    boss = list(asteroids)[0]
+    boss.kill()
+
+    game.set_mode("hard")
+    field.start_wave()  # resets the populated guard for the next spawn
+    maybe_boss_wave(game, field)
+    hard_speed = list(asteroids)[0].velocity.length()
+
+    assert easy_speed == pytest.approx(BOSS_DRIFT_SPEED * 0.80)
+    assert hard_speed == pytest.approx(BOSS_DRIFT_SPEED * 1.25)
+    assert easy_speed < hard_speed
