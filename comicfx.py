@@ -23,13 +23,21 @@ screen-level print over the world, under the HUD.
 Comic bursts (visual V4): destruction pops a jagged polygon and a rotated
 onomatopoeia word — POW!/BOOM!/ZAP! — behind the debris cloud, with text
 surfaces cached per (word, color, size) and live words capped.
+
+Comic HUD panels (visual V5): build_panel() pre-renders the yellow
+halftone plates with black ink borders that the HUD, the game-over
+overlay, and the wave banner sit on, and cached_rotated_text() extends
+the render cache with rotated copies (the banner's per-letter tilt) —
+still one render per key, never per frame. The shared fonts render
+BOLD: comic lettering is the point, and one flag at font creation keeps
+every cache entry's metrics consistent.
 """
 
 import random
 
 import pygame
 
-from constants import ASTEROID_MIN_RADIUS, PALETTE
+from constants import ASTEROID_MIN_RADIUS, CHIP_CRACK_FRACTIONS, PALETTE
 
 # Halo budget: the ring-band tripwire (the unshielded band 25–32px from
 # the ship center must stay paper) leaves ~5px of outline room past the
@@ -236,8 +244,16 @@ def _font(size):
     font = _text_fonts.get(size)
     if font is None:
         font = pygame.font.Font(None, size)
+        font.set_bold(True)  # comic lettering (V5) — set once, at creation
         _text_fonts[size] = font
     return font
+
+
+def shared_font(size):
+    """The shared bold font for a size — the accessor hud.py's font
+    helpers delegate to, so ad-hoc renders (test rect math) measure the
+    same glyphs the cache produces."""
+    return _font(size)
 
 
 def cached_text(word, color, size):
@@ -252,6 +268,74 @@ def cached_text(word, color, size):
     if surface is None:
         surface = _font(size).render(word, True, color)
         _text_cache[key] = surface
+    return surface
+
+
+# --- Comic HUD panels (visual V5) ---------------------------------------------
+# The yellow halftone plates with black ink borders that the HUD, the
+# game-over overlay, and the wave banner sit on. Pre-rendered like the
+# background: build once per size, blit forever — never drawn with
+# primitives per frame.
+
+PANEL_DOT_SPACING = 10  # px between halftone dots on a panel
+PANEL_DOT_RADIUS = 2
+PANEL_BORDER_PX = 3     # the ink border stroke
+
+
+def build_panel(width, height):
+    """Pre-render one comic panel: yellow plate, darker halftone dots, black
+    ink border. Opaque — blitting it is the cheap full-color case, and a
+    uniform surface alpha (the halftone print's mechanism) fades it cleanly.
+
+    Deterministic — pure arithmetic, no RNG, so every panel of a size is
+    pixel-identical (tests may assert against its colors)."""
+    panel = pygame.Surface((width, height))
+    panel.fill(PALETTE["hud_panel"])
+
+    # hex-packed dot grid, same geometry family as the screen halftone
+    dot_color = PALETTE["hud_panel_dot"]
+    rows = height // PANEL_DOT_SPACING + 1
+    cols = width // PANEL_DOT_SPACING + 1
+    for row in range(rows):
+        y = PANEL_BORDER_PX + row * PANEL_DOT_SPACING
+        x_offset = (row % 2) * PANEL_DOT_SPACING / 2
+        for col in range(cols):
+            x = PANEL_BORDER_PX + col * PANEL_DOT_SPACING + x_offset
+            if x > width - PANEL_BORDER_PX or y > height - PANEL_BORDER_PX:
+                continue  # dots stay inside the ink border
+            pygame.draw.circle(panel, dot_color, (x, y), PANEL_DOT_RADIUS)
+
+    pygame.draw.rect(panel, INK, panel.get_rect(), PANEL_BORDER_PX)
+    return panel
+
+
+_rotated_cache = {}
+
+
+def cached_rotated_text(text, color, size, angle):
+    """One rotated glyph, cached per (text, color, size, angle) — the wave
+    banner's letter path.
+
+    The color may carry a per-frame alpha (the fade parameter):
+    pygame's font render ignores a color's alpha channel, so the band's
+    alpha is scaled into the glyph's antialias coverage with a
+    BLEND_RGBA_MULT fill on the rotated copy — per-pixel alpha without
+    surface set_alpha (which does not compose with SRCALPHA) and without
+    re-rendering text per frame. The full-ink base glyph comes from the
+    shared text cache; band surfaces are per-key and never shared."""
+    if angle == 0:
+        return cached_text(text, color, size)
+    key = (text, color, size, angle)
+    surface = _rotated_cache.get(key)
+    if surface is None:
+        base = cached_text(text, color[:3], size)
+        surface = pygame.transform.rotate(base, angle)
+        if len(color) > 3 and color[3] < 255:
+            surface.fill(
+                (255, 255, 255, color[3]),
+                special_flags=pygame.BLEND_RGBA_MULT,
+            )
+        _rotated_cache[key] = surface
     return surface
 
 
@@ -336,3 +420,59 @@ class Burst(pygame.sprite.Sprite):
         )
         self._text.set_alpha(int(255 * life_fraction))
         surface.blit(self._text, self._text.get_rect(center=self.position))
+
+
+# --- Chip-damage cracks (Tier 2) ---------------------------------------------
+# Idle-clicked rocks crack: an ink web over the hull that deepens with the
+# chip stage. The geometry is pure and deterministic per (radius, seed) —
+# re-seeded on every call, so a drifting rock's cracks stick to its body
+# frame to frame — and the full stage-3 web is generated whole and revealed
+# as a prefix, so deepening shows more of the same web instead of redrawing
+# a new one. Plain draw.lines strokes on the world surface — no surfaces,
+# no alpha, the headless dummy-driver contract.
+
+CRACK_LINES_PER_STAGE = 2    # new ink lines each stage reveals
+CRACK_INNER_FRACTION = 0.2   # cracks start off-center, not at the exact middle
+CRACK_MID_FRACTION = 0.55    # the jag's midpoint radius
+CRACK_REACH_FRACTION = 0.9   # deepest reach, as a fraction of the hull radius
+CRACK_JITTER_DEGREES = 16.0  # per-vertex angular jitter — jagged, not spokes
+CRACK_WIDTHS = (1, 2, 2)     # stroke width by stage: hairline first, ink after
+
+
+def crack_polylines(radius, seed):
+    """Pure crack geometry for a chipped rock: the full stage-3 web of
+    jagged ink polylines, relative to the rock's center. The web a rock
+    grows into is fixed at birth by its seed, and stage n reveals the
+    first n * CRACK_LINES_PER_STAGE polylines of it — the pattern never
+    jumps as the damage deepens, it just gains lines."""
+    rng = random.Random(seed)
+    count = CRACK_LINES_PER_STAGE * len(CHIP_CRACK_FRACTIONS)
+    web = []
+    for i in range(count):
+        heading = i * 360 / count + rng.uniform(-CRACK_JITTER_DEGREES, CRACK_JITTER_DEGREES)
+        mid = heading + rng.uniform(-CRACK_JITTER_DEGREES, CRACK_JITTER_DEGREES)
+        web.append([
+            pygame.Vector2(1, 0).rotate(heading) * radius * CRACK_INNER_FRACTION,
+            pygame.Vector2(1, 0).rotate(mid) * radius * CRACK_MID_FRACTION,
+            pygame.Vector2(1, 0).rotate(heading) * radius * CRACK_REACH_FRACTION,
+        ])
+    return web
+
+
+def draw_cracks(surface, center, radius, stage, seed):
+    """The ink crack web over a chipped rock, deepening with the stage:
+    stage n draws the first n * CRACK_LINES_PER_STAGE polylines of the
+    rock's seeded web, stroked wider as the cracks deepen. Pure ink lines
+    on the opaque world surface — never per-pixel alpha."""
+    if stage <= 0:
+        return
+    stage = min(stage, len(CHIP_CRACK_FRACTIONS))
+    width = CRACK_WIDTHS[min(stage, len(CRACK_WIDTHS)) - 1]
+    for polyline in crack_polylines(radius, seed)[: stage * CRACK_LINES_PER_STAGE]:
+        pygame.draw.lines(
+            surface,
+            INK,
+            False,
+            [(center[0] + point.x, center[1] + point.y) for point in polyline],
+            width,
+        )

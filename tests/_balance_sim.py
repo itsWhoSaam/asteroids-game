@@ -248,7 +248,13 @@ def step(world, stats, sim_time, click_due, buy_due, clicks_per_second=SIM_CLICK
         world["powerups"],
         world["shake"],
     )
-    maybe_advance_wave(world["game"], world["field"], world["banner"])
+    maybe_advance_wave(
+        world["game"],
+        world["field"],
+        world["banner"],
+        world["player"],
+        world["economy"],
+    )
     world["banner"].update(SIM_DT)
     world["shake"].update(SIM_DT)
 

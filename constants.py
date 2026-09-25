@@ -52,6 +52,25 @@ HUD_FONT_SIZE = 28
 HUD_MARGIN = 12
 HUD_LINE_STEP = 34
 
+# --- Comic HUD panels (visual V5) -------------------------------------------
+# The score/lives/wave HUD, the game-over overlay lines, and the wave banner
+# sit on pre-rendered yellow halftone panels with black ink borders. Padding
+# is shared by all three surfaces; the banner's per-letter tilt and the fade
+# quantization are banner-only.
+
+PANEL_PAD_X = 14                   # px of yellow between border and text, each side
+PANEL_PAD_Y = 8                    # px of yellow between border and text, top/bottom
+
+# The banner fade renders at BANNER_ALPHA_STEPS discrete alpha bands (baked
+# into the glyph colors through the shared cache), so the number of cached
+# letter surfaces is bounded — a cache entry per (letter, band, tilt), never
+# per frame. Eight bands over a 2s flash read as a smooth glide.
+BANNER_ALPHA_STEPS = 8
+
+# Slight per-letter rotation (degrees) — comic hand-lettering, alternating
+# sign down the line. Locked small: this is a tilt, not a tumble.
+WAVE_BANNER_TILT_DEGREES = 4.0
+
 # --- Spider-Verse palette (visual V1) --------------------------------------
 # The single place color lives: every entity draw, screen fill, and the HUD
 # text constant resolve through this table, and the pixel tests assert
@@ -73,7 +92,8 @@ PALETTE = {
     "powerup_triple": (255, 78, 205),
     "spark": (255, 210, 63),       # warm comic debris (F5)
     "hud_ink": (255, 247, 230),    # warm white HUD text
-    "hud_panel": (255, 210, 63),   # yellow panels (HUD restyle, later visual PR)
+    "hud_panel": (255, 210, 63),   # yellow panels (HUD restyle, V5)
+    "hud_panel_dot": (222, 176, 40),  # darker mustard halftone dots on the panels (V5)
     "banner": (255, 210, 63),
 }
 
@@ -326,3 +346,136 @@ SFX_WAVE_CLEAR_NOTE_S = 0.09
 SFX_WAVE_CLEAR_ARPEGGIO = (523.25, 659.25, 783.99, 1046.50)
 SFX_WAVE_CLEAR_VOLUME = 0.45
 
+# --- Wave milestone rewards (Tier 1) -----------------------------------------
+# Every MILESTONE_WAVE_INTERVAL-th cleared wave grants the ship a shield
+# charge plus a flat credit bonus to the idle ledger, announced in the wave
+# banner. The charge is kept until spent — no duration clock, unlike a
+# drop-shield's timed window. The bonus is flat rather than income-scaled so
+# the banner announces the exact number the ledger receives.
+MILESTONE_WAVE_INTERVAL = 5
+MILESTONE_SHIELD_CHARGES = 1
+MILESTONE_CREDIT_BONUS = 500.0
+
+# --- Help overlay (Tier 1) ---------------------------------------------------
+# H toggles a keybind-list overlay over dimmed play; H again dismisses it. The
+# dim reuses the pause overlay's sheet (PAUSE_OVERLAY_DIM_* above) — one dim
+# treatment, two overlays. The rows are data: hud.help_keymap() renders shop
+# and powerup entries straight from the tables the handlers read, and the test
+# suite pins every listed key to a live handler, so the list cannot drift
+# from what the game actually answers. Help dims, it never freezes — pause is
+# the freeze, and the two overlays stack when both are open.
+HELP_FONT_SIZE = 24               # dense list font, between HUD and game-over
+HELP_LINE_STEP = 30               # px between help rows
+HELP_TITLE_STEP = 56              # px between the title and the first row
+
+# --- Low-lives warning (UX wave) ---------------------------------------------
+# At exactly LOW_LIVES_THRESHOLD lives the HUD lives line pulses in size and a
+# stepped vignette darkens the screen edges until the run leaves the gate —
+# respawn, game over, or restart. Both effects keep the headless contract: the
+# pulse re-renders the line at oscillating sizes (the size-fade precedent),
+# and the vignette blits uniform surface-alpha strips (the pause-dim
+# precedent) — never per-pixel alpha.
+LOW_LIVES_THRESHOLD = 1              # the gate: exactly this many lives left
+LOW_LIVES_PULSE_SECONDS = 0.9        # s per full size oscillation
+LOW_LIVES_PULSE_AMPLITUDE = 1.2      # peak size factor over the resting line
+LOW_LIVES_VIGNETTE_COLOR = PALETTE["fringe_r"]  # danger red, the fringe family
+LOW_LIVES_VIGNETTE_BANDS = 3         # stepped frames from the edge inward
+LOW_LIVES_VIGNETTE_BAND_WIDTH = 14   # px per band step inward
+LOW_LIVES_VIGNETTE_MAX_ALPHA = 80    # outermost band strength, 0–255
+LOW_LIVES_VIGNETTE_ALPHA_STEP = 28   # fade per band inward
+
+# --- Distinct score popups (Tier 2) ------------------------------------------
+# Points and credits both float over a wreck on the FloatingText dt-timer
+# template, and main.popup_style resolves each kind's look: a shot kill's
+# points award announces '+N pts' in the palette's warm white, while credits
+# keep their yellow '+N'. The points popup spawns a head above the credit
+# float paid on the same frame by the destruction diff, so the pair stacks
+# instead of overlapping. Display only — neither kind touches economy math.
+SCORE_COLOR = PALETTE["hud_ink"]  # warm white — reads apart from yellow credits
+SCORE_POPUP_OFFSET_Y = 24.0       # px head start above the credit float's line
+
+# --- Chip-damage cracks (Tier 2) ---------------------------------------------
+# Idle-clicked rocks wear their damage: chip damage maps to a 0-3 crack stage
+# through fractions of the same threshold take_chip kills by, and the draw
+# renders an ink crack web that deepens stage by stage (comicfx.draw_cracks).
+# Fractions, not absolute damage, so every size tier cracks on the same cue.
+# Purely visual — no economy path changes, the destruction diff reads the
+# same split() it always did.
+
+# The damage fraction that deepens the web one stage, in draw order: a rock
+# at a quarter of its chip threshold shows the first hairline pair, and the
+# last stage lands a click or two before the split. Crossing is inclusive
+# (>=): a rock AT the mark shows the next stage.
+CHIP_CRACK_FRACTIONS = (0.25, 0.50, 0.75)
+
+# --- Run stats + end-of-run summary (run-stats PR) ---------------------------
+# Per-run counters — shots fired/hit, rocks destroyed by size tier, waves
+# survived, credits earned split idle-vs-click — reported by a summary block
+# under the game-over prompt. Run-scoped only: never persisted, so no save
+# key and nothing for the restart hooks to preserve. The block renders as
+# caption panels in the V5 family, seated below the game-over overlay's
+# worst case (three lines) and above the shop panel's bottom edge.
+STATS_FONT_SIZE = 24        # dense summary rows — the help list's size
+STATS_LINE_STEP = 30        # px between summary rows
+STATS_BLOCK_GAP = 36        # px between the game-over block and the summary
+
+# --- Difficulty modes (Tier 2) -----------------------------------------------
+# Easy/Normal/Hard: a mode multiplier table consumed where lives and the
+# wave_params spawns are read. Normal IS the shipped tuning — its row
+# multiplies by exactly 1.0, so the default flow (and the balance sim) plays
+# identically to before. Selection lives on the start/game-over flow: the boot
+# menu and the game-over prompt answer 1/2/3, and the choice persists in
+# game_save.json through the save loader's read-modify-write merge. Each mode
+# tracks its own best as a save key; the legacy high_score key keeps its old
+# meaning (the overall best) and is still written, so pre-difficulty saves
+# migrate instead of breaking.
+DIFFICULTY_MODES = ("easy", "normal", "hard")
+DIFFICULTY_DEFAULT = "normal"
+DIFFICULTY_TABLE = {
+    "easy": {"lives": 5, "spawn_interval_mult": 1.25, "speed_mult": 0.80,
+             "blurb": "5 lives, slower sparser rocks"},
+    "normal": {"lives": PLAYER_START_LIVES, "spawn_interval_mult": 1.0,
+               "speed_mult": 1.0, "blurb": "3 lives, the shipped tuning"},
+    "hard": {"lives": 2, "spawn_interval_mult": 0.80, "speed_mult": 1.25,
+             "blurb": "2 lives, faster denser rocks"},
+}
+DIFFICULTY_SAVE_KEY = "difficulty"
+
+# Per-mode bests ride the save merge as three keys, one per mode.
+HIGH_SCORE_SAVE_KEYS = {
+    "easy": "high_score_easy",
+    "normal": "high_score_normal",
+    "hard": "high_score_hard",
+}
+
+# The start/game-over flow's select keys: 1 Easy, 2 Normal, 3 Hard. They own
+# 1/2/3 only outside a live run — during play the shop owns 1-4, so the
+# pump's shop branch gates on playing and these answer on menu/game-over.
+DIFFICULTY_SELECT_KEYS = {
+    pygame.K_1: "easy",
+    pygame.K_2: "normal",
+    pygame.K_3: "hard",
+}
+DIFFICULTY_KEY_LABELS = {
+    mode: chr(key) for key, mode in DIFFICULTY_SELECT_KEYS.items()
+}
+
+# --- Achievements + toasts (Tier 2) -------------------------------------------
+# Five lifetime awards — first nuke used, wave 5 reached, 10,000 points in one
+# run, first drone deployed, high score beaten — evaluated by a pure function
+# over a per-frame EventStats snapshot (achievements.py). The unlocked ids
+# persist in game_save.json as the ``achievements`` key through the
+# read-modify-write save merge, so idle_* and high_score ride along untouched.
+# Each unlock queues a toast: one at a time, FIFO, expiring on the dt-timer
+# template, seated in the free top-center seat — the HUD panel owns the top
+# left, the audio tags the top right, and the wave banner the screen center.
+# Rendering stays headless-safe: the toast is an opaque caption panel blitted
+# at an animated position (the pause-dim precedent — surface alpha untouched,
+# no per-pixel alpha). TOAST_SECONDS must exceed 2 * TOAST_SLIDE_SECONDS so a
+# seated hold exists between the mirrored slide-in and slide-out.
+ACHIEVEMENT_SCORE_THRESHOLD = 10000  # one-run points for the score award
+ACHIEVEMENT_WAVE_THRESHOLD = 5       # wave reached for the wave award
+TOAST_SECONDS = 3.0        # s a toast owns its seat, slide in+out included
+TOAST_SLIDE_SECONDS = 0.4  # s of slide-in, mirrored by the slide-out
+TOAST_SEAT_Y = 64          # px from the top edge where a seated toast rests
+TOAST_FONT_SIZE = 24       # the help list's dense size — the V5 panel family

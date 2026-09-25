@@ -110,6 +110,15 @@ class Economy:
         self.credits += payout
         return payout
 
+    def grant_milestone(self, amount):
+        """Pay a flat milestone bonus (wave rewards) and return the amount.
+
+        Deliberately no income multiplier, unlike a mint: the banner
+        announces the exact number the ledger receives, so scaling here
+        would make the announcement a lie."""
+        self.credits += amount
+        return amount
+
     def buy(self, name):
         """Spend one level of ``name``; False (and no change) when short."""
         cost = self.upgrade_cost(name)

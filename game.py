@@ -9,8 +9,8 @@ high_score_beaten event, and the save loader's read-modify-write contract
 """
 
 from constants import (
+    DIFFICULTY_TABLE,
     PLAYER_DEATH_BURST_INTENSITY,
-    PLAYER_START_LIVES,
     SHAKE_PLAYER_DEATH,
     VOLUME_STEP,
 )
@@ -19,6 +19,13 @@ from hud import SAVE_PATH, Score
 from logger import log_event
 import sound
 from particles import burst
+from stats import RunStats
+
+
+def mode_lives(mode):
+    """Starting lives for a difficulty mode (Tier 2), pure for the table
+    tests: Easy 5, Normal the shipped 3, Hard 2."""
+    return DIFFICULTY_TABLE[mode]["lives"]
 
 
 class Game:
@@ -42,12 +49,29 @@ class Game:
         self.particles = particles
         self.shake = shake
         self._score = Score(save_path)
-        self.lives = PLAYER_START_LIVES
+        # Tier 2 difficulty modes: the mode persists across runs (the save
+        # merge carries it), so a fresh Game resumes the saved choice and
+        # starts on its lives row. Lives apply at start and at restart().
+        self.lives = mode_lives(self._score.mode)
         self.wave = 1
-        self.state = "playing"  # "playing" | "game_over"
+        # "playing" | "game_over" | "menu" — "menu" is main()'s boot state
+        # (the difficulty select); every run gate here checks != "playing",
+        # so a menu frame freezes the run for free.
+        self.state = "playing"
         # Tier 1 pause: True while P/Esc has frozen a live run. Never
         # persisted, and only ever set inside "playing" — see toggle_pause.
         self.paused = False
+        # Tier 1 help: True while the keybind list is up over dimmed play.
+        # UI state like pause — never persisted, toggled only in "playing"
+        # (see toggle_help), and cleared by game over and restart so a stale
+        # list never covers another screen's prompt.
+        self.help_open = False
+        # Run-stat counters (run-stats PR): per-run, never saved. The player
+        # records against the run's one instance — injected here, the one
+        # place both exist — so restart() must reset it in place, never
+        # rebind it, or the ship would keep scoring into a dead run's counters.
+        self.stats = RunStats()
+        self.player.stats = self.stats
 
     @property
     def score(self):
@@ -80,6 +104,19 @@ class Game:
         log_event("paused" if self.paused else "resumed")
         return True
 
+    def toggle_help(self):
+        """Flip the help overlay on a live run only; True when it flipped.
+
+        Same gate as toggle_pause: the game-over screen owns its R/Q prompt
+        and a fresh run starts clean — restart()/game_over() clear the flag.
+        Unlike pause, help freezes nothing (the run continues under the
+        dimmed list), so this touches no simulation state and logs no run
+        event — the list is documentation, not a world change."""
+        if self.state != "playing":
+            return False
+        self.help_open = not self.help_open
+        return True
+
     @property
     def volume(self):
         """The persisted master level, 0–100 (UX wave)."""
@@ -102,6 +139,28 @@ class Game:
     def new_high(self):
         """True once this run has beaten the persisted high score."""
         return self._score.beaten
+
+    @property
+    def mode(self):
+        """The selected difficulty (Tier 2), persisted via the Score seam."""
+        return self._score.mode
+
+    @property
+    def high_scores(self):
+        """Every mode's persisted best — the difficulty menu reads it."""
+        return self._score.mode_highs
+
+    def set_mode(self, mode):
+        """Select the difficulty for the NEXT run (start/game-over flow).
+
+        Persists through the Score seam, which retargets the high-score
+        comparison to the new mode's best. Lives apply at restart(), not
+        here — selection never lands mid-run, so both restart hooks and the
+        menu's launch land the mode's lives the same way.
+        """
+        self._score.set_mode(mode)
+        log_event("difficulty_selected", mode=mode)
+        return self._score.mode
 
     def add_score(self, points):
         """Points for a destroyed asteroid, through the F1 seam."""
@@ -143,20 +202,27 @@ class Game:
         self.state = "game_over"
         # Frozen worlds resolve no hits, so a pause can't coexist with game
         # over — clearing keeps that invariant structural: the game-over
-        # screen is never dimmed by a stale pause flag.
+        # screen is never dimmed by a stale pause flag. A stale help list
+        # would cover the R/Q prompt the same way, so it closes here too.
         self.paused = False
+        self.help_open = False
         log_event("game_over", score=self.score, high_score=self.high_score)
         sound.play(sound.SFX_GAME_OVER)  # F6: the run winding down
 
     def restart(self):
         """Full reset: counters to wave-1 start AND world cleared."""
         self._score.reset()
-        self.lives = PLAYER_START_LIVES
+        # Run stats (run-stats PR): run-scoped counters die with the run,
+        # zeroed in place — both restart hooks land here, and the player
+        # holds this very instance.
+        self.stats.reset()
+        self.lives = mode_lives(self.mode)
         self.wave = 1
         self.state = "playing"
         # Both restart hooks land here (game-over R and the pause overlay's
-        # R): a fresh run is always live and unpaused.
+        # R): a fresh run is always live, unpaused, and help-free.
         self.paused = False
+        self.help_open = False
         # kill() detaches each sprite from ALL its groups (asteroids are also
         # in updatable/drawable) — emptying one group would leave zombie rocks
         # drifting and rendering, unshootable.

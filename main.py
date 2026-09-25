@@ -1,10 +1,12 @@
 import random
+from typing import NamedTuple
 
 import pygame
 
 from constants import (
     ASTEROID_MAX_RADIUS,
     CLICK_DAMAGE_BASE,
+    DIFFICULTY_SELECT_KEYS,
     FLOAT_COLOR,
     FLOAT_FONT_SIZE,
     FLOAT_LIFETIME_SECONDS,
@@ -13,27 +15,45 @@ from constants import (
     HUD_MARGIN,
     IDLE_AUTOSAVE_SECONDS,
     MAX_DT,
+    MILESTONE_CREDIT_BONUS,
+    MILESTONE_SHIELD_CHARGES,
+    MILESTONE_WAVE_INTERVAL,
     PALETTE,
     POWERUPS,
     POWERUP_ACTIVE_COLOR,
     SFX_POWERUP,
     SCREEN_WIDTH,
     SCREEN_HEIGHT,
+    SCORE_COLOR,
+    SCORE_POPUP_OFFSET_Y,
     SHAKE_LARGE_ASTEROID,
     SHOP_BRIGHT_COLOR,
 )
+from achievements import Achievements, event_stats_from
 from asteroid import Asteroid
 from asteroidfield import AsteroidField
 from comicfx import Burst, build_background_layers, burst_word, spawn_burst
 from economy import Economy
 from drones import DroneBay, OfflineBanner, drone_dps
 from game import Game
-from hud import WaveBanner, draw_game_over, draw_hud, draw_pause, hud_font, points_for
+from hud import (
+    LowLivesWarning,
+    WaveBanner,
+    draw_game_over,
+    draw_help,
+    draw_hud,
+    draw_mode_menu,
+    draw_pause,
+    draw_run_summary,
+    hud_font,
+    points_for,
+)
 from logger import log_state, log_event
 from particles import Particle, Shake, burst
 from player import Player
 from powerups import PowerUp, drops_powerup, pick_type
 from shop import Shop
+from stats import SOURCE_IDLE
 import sound
 from shot import Shot
 
@@ -66,6 +86,13 @@ def handle_collisions(asteroids, shots, player1, game, powerups, shake=None):
                 continue
             if asteroid.collides_with(shot):
                 log_event("asteroid_shot")
+                # Run stats (run-stats PR): a player shot connected — turret
+                # shots ride the same pipeline tagged from_drone, and stay
+                # out of the accuracy read. The kill also re-attributes the
+                # rock below, so a chip history cannot turn a shot kill into
+                # a click payout.
+                if not shot.from_drone:
+                    game.stats.record_hit()
                 # V4: the word pops first, so it joins fx ahead of the
                 # debris — the burst polygon sits behind the particle cloud
                 # it salutes. POW! on large, BOOM! on medium, small stays
@@ -83,9 +110,23 @@ def handle_collisions(asteroids, shots, player1, game, powerups, shake=None):
                     shake.kick(
                         SHAKE_LARGE_ASTEROID * asteroid.radius / ASTEROID_MAX_RADIUS
                     )
+                asteroid.killed_by = SOURCE_IDLE  # run stats: the shot killed it
                 asteroid.split()
                 shot.kill()
-                game.add_score(points_for(asteroid.radius))
+                points = points_for(asteroid.radius)
+                game.add_score(points)
+                # Distinct score popups: the points award floats as its own
+                # white '+N pts' at the kill site — display only, it touches
+                # neither the score nor the ledger. It starts a head above
+                # the credit float the destruction diff pays this same frame.
+                style = popup_style("points", points)
+                FloatingText(
+                    asteroid.position.x,
+                    asteroid.position.y - SCORE_POPUP_OFFSET_Y,
+                    points,
+                    label=style.label,
+                    color=style.color,
+                )
                 # A destroyed non-small rock occasionally pays a pickup (F4).
                 # The pure rolls keep the decision testable; the new PowerUp
                 # joins its containers like every other sprite.
@@ -108,37 +149,85 @@ def handle_collisions(asteroids, shots, player1, game, powerups, shake=None):
                 sound.play(sound.SFX_POWERUP)  # F6: the pickup jingle
 
 
-def maybe_advance_wave(game, field, banner):
+class MilestoneReward(NamedTuple):
+    """What a milestone wave pays: shield charges stocked on the ship and a
+    flat credit bonus to the idle ledger."""
+
+    shield_charges: int
+    credits: float
+
+
+def milestone_reward(wave):
+    """The grant for a wave number, or None when the wave pays none.
+
+    Pure (Tier 1 milestone rewards): exactly the waves divisible by
+    MILESTONE_WAVE_INTERVAL pay, so the trigger is provable without a
+    live game.
+    """
+    if wave % MILESTONE_WAVE_INTERVAL != 0:
+        return None
+    return MilestoneReward(
+        shield_charges=MILESTONE_SHIELD_CHARGES,
+        credits=MILESTONE_CREDIT_BONUS,
+    )
+
+
+def maybe_advance_wave(game, field, banner, player=None, economy=None):
     """Start the next wave once the current one was populated and is cleared
     (engagement F3).
 
     The populated guard is the trap at both ends of a run: at game start and
     after R-restart the field is empty with wave at 1 — without it the
     counter would immediately tick to 2. Game over advances nothing.
+
+    Tier 1 milestone rewards: every 5th wave stocks a shield charge on the
+    ship and pays a flat credit bonus to the idle ledger, announced in the
+    banner text. Player and economy ride optional kwargs — the
+    handle_collisions precedent — so the pinned three-argument call shape
+    (tests, the balance sim) keeps working unchanged.
     """
     if game.state != "playing":
         return
     if field.spawned_this_wave == 0 or len(game.asteroids) > 0:
         return
     game.wave += 1
+    game.stats.record_wave_cleared()  # run stats: a wave survived (run-stats PR)
     field.start_wave()  # fresh spawn clock and populated guard for the new wave
-    banner.show(game.wave)
+    reward = milestone_reward(game.wave)
+    if reward is not None:
+        if player is not None:
+            player.grant_shield(reward.shield_charges)
+        if economy is not None:
+            economy.grant_milestone(reward.credits)
+    banner.show(
+        game.wave,
+        milestone_credits=None if reward is None else reward.credits,
+    )
     sound.play(sound.SFX_WAVE_CLEAR)  # extra SFX: a rising arpeggio, wave won
     log_event("wave_started", wave=game.wave)
+    if reward is not None:
+        log_event(
+            "milestone_reward",
+            wave=game.wave,
+            shield_charges=reward.shield_charges,
+            credits=reward.credits,
+        )
 
 
 def update_world(updatable, drones, asteroids, shots, player1, game, powerups,
-                 shake, field, banner, economy, dt):
+                 shake, field, banner, economy, dt, warning=None):
     """One simulation step: every per-frame update, frozen whole while paused.
 
     The pause flag is the entire gate (Tier 1): a frozen frame ticks nothing
     — sprites, drone turrets, the collision sweep, the wave clock, the
     banner and shake, bought-powerup durations — so nothing ages, dies, or
-    mints while the overlay is up. The event pump and the render stay live,
-    so mute, resume, restart, and quit all still answer. main() also gates
-    its destruction-diff poll and autosave on the same flag.
+    mints while the overlay is up. The boot menu (Tier 2 difficulty) freezes
+    the same way: nothing has spawned yet, so the select screen sits over a
+    still field. The event pump and the render stay live, so mute, resume,
+    restart, and quit all still answer. main() also gates its
+    destruction-diff poll and autosave on the same flag.
     """
-    if game.paused:
+    if game.paused or game.state == "menu":
         return
     updatable.update(dt)
     # player1.update(dt)
@@ -149,9 +238,15 @@ def update_world(updatable, drones, asteroids, shots, player1, game, powerups,
     drones.update(dt, player1, asteroids, shots)
 
     handle_collisions(asteroids, shots, player1, game, powerups, shake)
-    maybe_advance_wave(game, field, banner)
+    maybe_advance_wave(game, field, banner, player1, economy)
     banner.update(dt)
     shake.update(dt)  # F5: decay toward still before the frame is blitted
+
+    # Low-lives warning (UX wave): the gate re-derives from lives + state
+    # every frame — respawn, game over, and restart all leave it with no
+    # dedicated hook, and a frozen run holds its phase with the rest.
+    if warning is not None:
+        warning.update(dt, game.lives, game.state)
 
     # Bought powerups tick on the dt-timer pattern: expire effects,
     # then publish the chrono scale the whole field reads this frame.
@@ -217,7 +312,59 @@ def nuke_field(asteroids):
     while len(asteroids) > 0:
         for rock in list(asteroids):
             burst(rock.position, rock.radius)
+            # Run stats: the nuke killed these rocks, not any earlier chips
+            # on them — re-attribute before the split pays the diff.
+            rock.killed_by = SOURCE_IDLE
             rock.split()
+
+
+def mint_destructions(previous, current, economy, stats):
+    """The idle mint poll: every wreck the frame diff finds pays the ledger
+    exactly once — the one destruction→mint path (idle core).
+
+    Returns (wreck, payout) pairs so the caller floats '+N' labels at the
+    death sites. The run stats record here because the diff is the one
+    place every destruction source surfaces (shots, clicks, drones, nukes):
+    a rock lands in its size tier, and its payout in the click or idle
+    bucket by the killer the wreck reports (run-stats PR).
+    """
+    paid = []
+    for wreck in destroyed_asteroids(previous, current):
+        payout = economy.mint(wreck.radius)
+        log_event("credit_minted", amount=payout)
+        stats.record_destroyed(wreck.radius)
+        stats.record_credits(payout, wreck.killed_by)
+        paid.append((wreck, payout))
+    return paid
+
+
+def restart_run(game, economy, field, banner, asteroids):
+    """The R-key full restart — the game-over screen and the pause overlay
+    both land here (F2, Tier 1), so this is the run-state reset's second
+    hook beside Game.restart itself.
+
+    A cleared field is not player destruction: every rock is flagged as a
+    cull so the diff poll never mints for the restart. Game.restart resets
+    the run — score, lives, wave, and the run stats in place — bought timed
+    effects die with the run (the paid use is consumed), and the field
+    forgets the old wave or its populated guard would see an empty fresh
+    field and tick to wave 2 before anything spawns.
+    """
+    for asteroid in asteroids:
+        asteroid.despawned = True
+    game.restart()
+    economy.end_run_effects()
+    field.start_wave()
+    banner.show(game.wave)
+
+
+def select_mode(game, economy, field, banner, asteroids, mode):
+    """The 1/2/3 difficulty select (Tier 2): persist the mode and launch
+    the run — the boot menu's and the game-over screen's key handler,
+    beside restart_run's R. Selection only happens outside a run, so
+    restart() landing the mode's lives is the whole application."""
+    game.set_mode(mode)
+    restart_run(game, economy, field, banner, asteroids)
 
 
 _float_font_cache = None
@@ -236,6 +383,26 @@ def float_label(amount):
     return f"+{int(amount)}"
 
 
+class PopupStyle(NamedTuple):
+    """The resolved look of one floating-popup kind (distinct score popups)."""
+
+    label: str
+    color: tuple
+
+
+def popup_style(kind, amount):
+    """Label + color for a floating popup, by kind.
+
+    Pure (distinct score popups): both kinds share the FloatingText
+    dt-timer template but never a look — points announce '+N pts' in the
+    palette's warm white, credits keep their yellow '+N'. One resolver, so
+    the two kinds cannot drift into each other.
+    """
+    if kind == "points":
+        return PopupStyle(f"+{int(amount)} pts", SCORE_COLOR)
+    return PopupStyle(float_label(amount), FLOAT_COLOR)
+
+
 def click_damage(shop, economy):
     """Chip damage per click: the constant base scaled by Nanoblade
     levels — and ×10 while Overdrive runs (insane powerups). Shots
@@ -244,10 +411,13 @@ def click_damage(shop, economy):
 
 
 class FloatingText(pygame.sprite.Sprite):
-    """A '+N' credit number rising from a fresh wreck (idle core).
+    """A small text line rising from a point and fading on the dt-timer.
 
-    Lifetime runs on the dt-timer pattern — no wall-clock calls, so
-    headless runs and tests step it deterministically.
+    The idle core's '+N' credit float is the original; the distinct-score-
+    popups wave made this the shared template — points and credits (and the
+    shop/powerup notices) all ride it with their own resolved look. Lifetime
+    runs on the dt-timer pattern — no wall-clock calls, so headless runs and
+    tests step it deterministically.
     """
 
     containers = ()
@@ -258,7 +428,11 @@ class FloatingText(pygame.sprite.Sprite):
         else:
             super().__init__()
         self.position = pygame.Vector2(x, y)
-        self.surface = float_font().render(label or float_label(amount), True, color)
+        # The resolved look rides the sprite so tests and evidence scripts
+        # can tell which kind a float is without OCR-ing the surface.
+        self.label = label or float_label(amount)
+        self.color = color
+        self.surface = float_font().render(self.label, True, color)
         self.lifetime = FLOAT_LIFETIME_SECONDS
 
     def update(self, dt):
@@ -277,7 +451,8 @@ def draw_credits(screen, credits):
     screen.blit(surface, (HUD_MARGIN, HUD_MARGIN + 3 * HUD_LINE_STEP))
 
 
-def render_world(screen, world, background, entities, fx, offset, game):
+def render_world(screen, world, background, entities, fx, offset, game,
+                 warning=None):
     """The V4 composition: three explicit passes into the world, then the
     screen-level steps — the blueprint's pass split, replacing the single
     flat drawable-group draw.
@@ -301,9 +476,15 @@ def render_world(screen, world, background, entities, fx, offset, game):
     screen.fill(PALETTE["paper"])
     screen.blit(world, offset)
     screen.blit(halftone, (0, 0))  # the screen-level print, over the world
+    # Low-lives warning (UX wave): the vignette prints above the halftone
+    # but under the HUD text, so the pulsing line stays crisp while the
+    # edges burn.
+    if warning is not None:
+        warning.draw_vignette(screen)
     draw_hud(screen, game.score, lives=game.lives, wave=game.wave,
              muted=game.muted,  # HUD last, above every world layer
-             volume=getattr(game, "volume", None))
+             volume=getattr(game, "volume", None),
+             lives_pulse=warning.pulse if warning is not None else None)
 
 
 def main():
@@ -349,10 +530,14 @@ def main():
     sound.set_volume(game.volume)
 
     # The field reads the wave off the Game (F3), so it is built after one
-    # exists. The WAVE 1 flash arms at game start.
+    # exists. No boot banner flash — Tier 2's menu owns the first screen,
+    # and restart_run arms the WAVE 1 flash when a mode launches the run.
     asteroid_field = AsteroidField(game)
     banner = WaveBanner()
-    banner.show(game.wave)
+    # Low-lives warning (UX wave): pulses the HUD lives line and prints the
+    # edge vignette while exactly one life remains. Not run state — it
+    # re-derives its gate from the Game every frame.
+    warning = LowLivesWarning()
 
     economy = Economy()
     shop = Shop(economy, player1)  # applies any save-loaded effect levels
@@ -366,6 +551,16 @@ def main():
     if offline_banner.amount > 0:
         log_event("offline_earnings", amount=offline_banner.amount)
 
+    # Tier 2 difficulty modes: boot into the select menu; 1/2/3 launch the
+    # run through select_mode → restart_run. The Game itself still
+    # constructs in "playing" — the balance sim and the tests drive runs
+    # directly — the menu is main()'s flow, not the Game's default.
+    game.state = "menu"
+
+    # Achievements (Tier 2): the unlocked set loads from the shared save's
+    # merge; evaluation below is pure and idempotent, so it can run every
+    # unpaused frame.
+    achievements = Achievements()
     prev_asteroids = set(asteroids)
     autosave_timer = 0.0
 
@@ -406,6 +601,13 @@ def main():
                 # overlay. Game over owns its own screen — toggle_pause
                 # refuses there — and mute above stays live while frozen.
                 game.toggle_pause()
+            if event.type == pygame.KEYDOWN and event.key == pygame.K_h:
+                # Tier 1 help: H toggles the keybind list over dimmed play.
+                # Documentation, not a world change — it dims but never
+                # freezes, so it answers while frozen too (the pause keys
+                # above stay live with the list up). Game over keeps its
+                # own screen; toggle_help refuses there, same as pause.
+                game.toggle_help()
             if event.type == pygame.KEYDOWN and (
                     game.state == "game_over" or game.paused):
                 # R restarts, Q quits (engagement F2). The pause overlay
@@ -413,28 +615,34 @@ def main():
                 # restart unpauses through Game.restart, and quit saves
                 # exactly like the game-over path.
                 if event.key == pygame.K_r:
-                    # A cleared field is not player destruction: flag every
-                    # rock as a cull so the diff poll never mints for restart.
-                    for asteroid in asteroids:
-                        asteroid.despawned = True
-                    game.restart()
-                    # Bought timed effects die with the run: the paid
-                    # use is consumed, the new run starts clean.
-                    economy.end_run_effects()
-                    # The field forgets the old wave too, or its populated
-                    # guard would see an empty field and tick to wave 2
-                    # before the fresh run spawns anything.
-                    asteroid_field.start_wave()
-                    banner.show(game.wave)
+                    restart_run(game, economy, asteroid_field, banner, asteroids)
                 elif event.key == pygame.K_q:
                     economy.save()
                     pygame.quit()
                     return
-            if event.type == pygame.KEYDOWN and not game.paused:
+            if event.type == pygame.KEYDOWN and game.state in ("menu", "game_over"):
+                # Tier 2 difficulty modes: 1/2/3 pick the next run's mode
+                # and launch it — the start/game-over flow's select, beside
+                # F2's R/Q above (R restarts the current mode). Q also quits
+                # from the menu, so the boot screen is never a trap.
+                mode = DIFFICULTY_SELECT_KEYS.get(event.key)
+                if mode is not None:
+                    select_mode(
+                        game, economy, asteroid_field, banner, asteroids, mode
+                    )
+                elif event.key == pygame.K_q and game.state == "menu":
+                    economy.save()
+                    pygame.quit()
+                    return
+            if (event.type == pygame.KEYDOWN and not game.paused
+                    and game.state == "playing"):
                 # Shop keys 1–4 (idle shop): additive beside F2's R/Q —
                 # different keys, so neither branch shadows the other.
                 # A frozen run answers nothing but the overlay keys (and M
                 # above): ledger spends and nukes must not fire mid-pause.
+                # Tier 2: playing-only, because 1/2/3 mean difficulty select
+                # on the menu and game-over screens — the shop can no longer
+                # answer there and shadow the select.
                 purchase = shop.handle_key(event.key)
                 if purchase is not None:
                     x, y = shop.cell_center(purchase.name)
@@ -475,17 +683,32 @@ def main():
         ms = game_clk.tick(60)
         dt = compute_dt(ms)
         update_world(updatable, drones, asteroids, shots, player1, game,
-                     powerups, shake, asteroid_field, banner, economy, dt)
+                     powerups, shake, asteroid_field, banner, economy, dt,
+                     warning)
 
         if not game.paused:
             # Destruction → credits: diff this frame's field against the
             # last, mint once per wreck, float a '+N' over the wreck.
-            # Frozen frames change no groups, so the poll holds too.
-            for wreck in destroyed_asteroids(prev_asteroids, asteroids):
-                payout = economy.mint(wreck.radius)
-                log_event("credit_minted", amount=payout)
-                FloatingText(wreck.position.x, wreck.position.y, payout)
+            # Frozen frames change no groups, so the poll holds too. The
+            # run stats record inside the same poll (run-stats PR).
+            for wreck, payout in mint_destructions(
+                    prev_asteroids, asteroids, economy, game.stats):
+                style = popup_style("credits", payout)
+                FloatingText(
+                    wreck.position.x,
+                    wreck.position.y,
+                    payout,
+                    label=style.label,
+                    color=style.color,
+                )
             prev_asteroids = set(asteroids)
+
+            # Achievements (Tier 2): a pure per-frame evaluation over the
+            # run and lifetime counters — idempotent once everything is
+            # unlocked. New awards persist through the save merge and queue
+            # toasts. Frozen frames evaluate nothing, like the mint poll.
+            achievements.evaluate(event_stats_from(game, economy))
+            achievements.update(dt)
 
             autosave_timer += dt
             if autosave_timer >= IDLE_AUTOSAVE_SECONDS:
@@ -497,7 +720,7 @@ def main():
         # moves, entities don't), the halftone print, HUD last and unshaken
         # so the score stays readable while the world rocks (F5).
         render_world(screen, world, background, entities, fx, shake.offset(),
-                     game)
+                     game, warning)
         draw_credits(screen, economy.credits)
         if not game.paused:
             offline_banner.update(dt)  # a frozen frame fades no UI timers
@@ -505,10 +728,20 @@ def main():
         drones.draw(screen, player1)
         shop.draw_panel(screen)
         shop.draw_powerups(screen)
-        if game.state == "game_over":
-            draw_game_over(screen, game.score, new_high=game.new_high)
+        achievements.draw(screen)  # the top-center toast seat, under overlays
+        if game.state == "menu":
+            # Tier 2: the difficulty select over the still, empty field.
+            draw_mode_menu(screen, game.mode, game.high_scores)
+        elif game.state == "game_over":
+            draw_game_over(screen, game.score, new_high=game.new_high,
+                           mode=game.mode)
+            # Run stats (run-stats PR): the run's counters, in a summary
+            # block under the game-over prompt.
+            draw_run_summary(screen, game.stats)
         elif game.paused:
             draw_pause(screen)  # the frozen world dims under the prompt
+        if game.help_open:
+            draw_help(screen)  # over dimmed play — or over the paused dim
         banner.draw(screen)  # on top: the WAVE n flash overlays everything
 
         pygame.display.flip()

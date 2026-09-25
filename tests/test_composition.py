@@ -16,17 +16,17 @@ These tests pin the blueprint's pass split as pixels and order:
   even while the world blits at a real shake offset — the HUD draws
   after the print, so its glyphs are not dimmed.
 
-Also here: the text-cache discipline — with pickups and the wave banner
-visible across simulated frames, font render calls go flat after the
-first frame (the survey's flagged per-frame allocation pattern, dead
-for burst words and pickup letters; HUD text caching is V5's surface,
-so draw_hud is deliberately not part of this frame loop).
+Also here: the text-cache discipline — with pickups, the wave banner,
+the HUD, and the game-over overlay visible across simulated frames,
+font render calls go flat after the first frame (the survey's flagged
+per-frame allocation pattern, dead since V4 for burst words and pickup
+letters; V5 routes HUD, overlay, and banner text through the same
+cache, so the loop now covers every text draw).
 """
 
 import pygame
 
 import comicfx
-import hud
 from comicfx import (
     ACTION_LINE_INNER_RADIUS,
     BURST_WORD_MEDIUM,
@@ -39,7 +39,7 @@ from constants import (
     SCREEN_HEIGHT,
     SCREEN_WIDTH,
 )
-from hud import WaveBanner
+from hud import WaveBanner, draw_game_over, draw_hud
 from main import render_world
 from powerups import PowerUp, PowerUpType
 
@@ -82,6 +82,12 @@ class CountingFont:
     def render(self, text, antialias, color=None, background=None):
         self._calls.append(text)
         return self._font.render(text, antialias, color, background)
+
+    def size(self, text):
+        return self._font.size(text)  # layout metrics pass through, uncounted
+
+    def get_height(self):
+        return self._font.get_height()
 
 
 def compose(entities=None, fx=None, offset=(0, 0)):
@@ -136,13 +142,15 @@ def test_background_pass_renders_under_entities():
 def test_halftone_print_lands_over_the_world():
     """The screen-level print dims the composed world: a halftone dot over
     an entity's pixels fades them — the print sits over everything drawn
-    into the world and under the HUD."""
+    into the world and under the HUD. The probe sits at the same dot row
+    as the original (18, 12) point but clear of the V5 HUD panel, which
+    now covers the top-left corner the old probe shared."""
     entities = pygame.sprite.Group()
-    Blob((18, 12), ENTITY_RED, entities)  # a row-1 halftone dot center
+    Blob((606, 12), ENTITY_RED, entities)  # a row-1 halftone dot center
 
     screen = compose(entities)
 
-    dotted = screen.get_at((18, 12))
+    dotted = screen.get_at((606, 12))
     assert dotted != (*ENTITY_RED, 255)  # the dot screen dimmed the entity...
 
     # ...and each channel of the mix sits between the entity color and the
@@ -175,11 +183,12 @@ def test_hud_renders_last_and_unshaken():
 
 
 def test_font_render_calls_stay_flat_across_frames(monkeypatch):
-    """The cache discipline, simulated: with three pickups, the wave banner,
-    and a burst visible, frame 1 fills the (word, color, size) caches and
-    every later frame renders ZERO new text surfaces. Counted at the two
-    font accessors the draws use: comicfx._font (pickup letters, burst
-    words) and hud.game_over_font (the banner's once-per-wave render)."""
+    """The cache discipline, simulated: with three pickups, the wave
+    banner, a burst, the HUD, and the game-over overlay visible, frame 1
+    fills the shared caches and every later frame renders ZERO new text
+    surfaces — counted at comicfx._font, the one font seam every text
+draw shares (V5 moved the banner off its own per-wave render and the
+HUD off raw renders onto the cache)."""
     pygame.init()
     calls = []
 
@@ -190,8 +199,6 @@ def test_font_render_calls_stay_flat_across_frames(monkeypatch):
         return CountingFont(real, calls)
 
     monkeypatch.setattr(comicfx, "_font", counting_font)
-    banner_font = pygame.font.Font(None, 72)
-    monkeypatch.setattr(hud, "game_over_font", lambda: CountingFont(banner_font, calls))
 
     # The draws under test, wired to no groups — main's group split is
     # composition-tested above; this loop isolates the allocation pattern.
@@ -218,7 +225,9 @@ def test_font_render_calls_stay_flat_across_frames(monkeypatch):
         banner.draw(screen)
         for pickup in pickups:
             pickup.draw(screen)
+        draw_hud(screen, 77, lives=3, wave=2)
+        draw_game_over(screen, 77, new_high=True)
         counts.append(len(calls))
 
-    assert counts[0] > 0  # the first frame fills the caches (letters, word, banner)
+    assert counts[0] > 0  # the first frame fills the caches (letters, word, HUD)
     assert counts[1:] == [counts[0]] * (len(counts) - 1)  # then: dead flat

@@ -41,6 +41,10 @@ class Player(CircleShape):
         self.powerup_timers = {}
         self.shield_hits = 0
         self.rotation = 0
+        # Run-stat sink (run-stats PR): Game injects the run's counters at
+        # construction — the player is built before the Game exists, so the
+        # attribute starts None and every recorder call guards on it.
+        self.stats = None
 
     @property
     def invulnerable(self):
@@ -89,6 +93,13 @@ class Player(CircleShape):
             return False
         self.shield_hits -= 1
         return True
+
+    def grant_shield(self, charges=1):
+        """Stock shield absorbs outright (milestone rewards): kept until
+        spent, with no duration clock — unlike a drop-shield, whose timer
+        wipes the pool when it runs out. One shield pool on purpose: the
+        ring draw and absorb_hit read shield_hits alone."""
+        self.shield_hits += charges
 
     def clear_powerups(self):
         """Wipe every active effect — part of the full-restart reset (F4)."""
@@ -188,6 +199,11 @@ class Player(CircleShape):
             pygame.Vector2(0, 1).rotate(self.rotation + spread_degrees)
             * PLAYER_SHOOT_SPEED
         )
+        # Run stats (run-stats PR): one bullet left the ship. Counted here,
+        # per bullet — a TRIPLE volley fires three, so the summary's
+        # hit/fired accuracy can never pass 100%.
+        if self.stats is not None:
+            self.stats.record_shot()
 
     def move (self, dt):
         unit_vector = pygame.Vector2(0, 1)
