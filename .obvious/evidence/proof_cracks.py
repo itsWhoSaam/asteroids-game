@@ -7,10 +7,15 @@ real chip path (Asteroid.take_chip) and the real draw path (Asteroid.draw):
 - proof_cracks.png          four same-size rocks — untouched and chipped to
                             stages 1-3 — side by side, labeled per stage
 - proof_cracks_deepen_a.png one rock after the clicks that first read as
-                            stage 1 (3 base clicks on a large rock)
-- proof_cracks_deepen_b.png the same rock after 4 more clicks — stage 3
+                            stage 1 (6 base clicks on a huge rock)
+- proof_cracks_deepen_b.png the same rock after 12 more clicks — stage 3
 - proof_cracks_after_split.png         the stage-3 rock split through the
                             real death path — both children uncracked
+
+The strip and deepen frames render at a 2× capture scale (rocks drawn at
+double radius, canvases ≥ 720 px on the short edge) so the PNGs clear the
+QA capture minimum; the split scene is full-screen and needs no scaling.
+Draw is vector-faithful at any radius — nothing here upscales a bitmap.
 
 Self-checks: the stage gate reads 0-3 across the strip, interior ink grows
 strictly with the stage, the live click sequence steps 1 → 3, and the
@@ -42,6 +47,7 @@ os.makedirs(OUT, exist_ok=True)
 PAPER = PALETTE["paper"]
 INK = (0, 0, 0)
 RADIUS = 40  # a large-ish demo rock; the strip shows one size for comparability
+SCALE = 2    # capture scale: the QA evidence floor wants a ≥720 px short edge
 
 pygame.init()
 screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
@@ -54,7 +60,7 @@ def font(size):
 
 
 def label(surface, text, center):
-    glyph = font(24).render(text, True, PALETTE["hud_ink"])
+    glyph = font(44).render(text, True, PALETTE["hud_ink"])
     surface.blit(glyph, glyph.get_rect(center=center))
 
 
@@ -77,7 +83,7 @@ def interior_ink(surface, center, radius):
 
 def rock_with_stage(x, y, stage):
     """A rock whose chip damage reads as `stage` — the real draw path."""
-    rock = Asteroid(x, y, RADIUS)
+    rock = Asteroid(x, y, RADIUS * SCALE)
     rock.crack_seed = 11  # fixed: reproducible evidence, not a lottery
     if stage > 0:
         rock.chip_damage = CHIP_CRACK_FRACTIONS[stage - 1] * rock.chip_threshold
@@ -95,18 +101,18 @@ def wire_asteroids():
 
 # --- the four-stage strip -----------------------------------------------------
 
-CELL = 200
-strip = pygame.Surface((4 * CELL, 300))
+CELL = 400
+strip = pygame.Surface((4 * CELL, 760))
 strip.fill(PAPER)
 stages = [0, 1, 2, 3]
 ink_counts = []
 for i, stage in enumerate(stages):
-    center = pygame.Vector2(i * CELL + CELL / 2, 120)
+    center = pygame.Vector2(i * CELL + CELL / 2, 300)
     rock = rock_with_stage(center.x, center.y, stage)
     assert crack_stage(rock.chip_damage, rock.radius) == stage
     rock.draw(strip)  # the real draw path — ring, fringes, and web
-    label(strip, f"STAGE {stage}  ({points_for(RADIUS)} pts)", (center.x, 240))
-    ink_counts.append(interior_ink(strip, center, RADIUS))
+    label(strip, f"STAGE {stage}  ({points_for(RADIUS * SCALE)} pts)", (center.x, 620))
+    ink_counts.append(interior_ink(strip, center, RADIUS * SCALE))
 
 assert ink_counts[0] == 0, "an untouched rock paints no interior ink"
 assert ink_counts == sorted(ink_counts), f"cracks must deepen in order: {ink_counts}"
@@ -115,29 +121,29 @@ pygame.image.save(strip, f"{OUT}/proof_cracks.png")
 
 # --- live deepening: real clicks, one rock, two frames ------------------------
 
-# A large rock (threshold 9.0): three base clicks read 3/9 — stage 1 — and
-# seven read 7/9 — stage 3, still two clicks from the split. (A tier-2 rock
-# dies on its sixth click, so its stage-3 window holds exactly one click.)
+# A huge rock (tier 8 → threshold 24): six base clicks read 6/24 — stage 1 —
+# and eighteen read 18/24 — stage 3, six clicks from the split. (A tier-2
+# rock dies on its sixth click, so its stage-3 window holds exactly one.)
 wire_asteroids()  # alive() needs the rocks in groups for take_chip
-deepen = pygame.Surface((CELL, 300))
+deepen = pygame.Surface((CELL + 120, 760))
 deepen.fill(PAPER)
-rock = Asteroid(CELL / 2, 130, 60)
+rock = Asteroid((CELL + 120) / 2, 330, 150)
 rock.crack_seed = 11
 
-for _ in range(3):  # 3/9 of the threshold → first hairline pair
+for _ in range(6):  # 6/24 of the threshold → first hairline pair
     assert rock.take_chip(CLICK_DAMAGE_BASE) is False
 assert crack_stage(rock.chip_damage, rock.radius) == 1
 rock.draw(deepen)
-label(deepen, "3 CLICKS — STAGE 1", (CELL / 2, 240))
+label(deepen, "6 CLICKS — STAGE 1", ((CELL + 120) / 2, 690))
 frame_a_ink = interior_ink(deepen, rock.position, rock.radius)
 pygame.image.save(deepen, f"{OUT}/proof_cracks_deepen_a.png")
 
-for _ in range(4):  # 7/9 → past the 0.75 mark, two clicks from the split
+for _ in range(12):  # 18/24 → past the 0.75 mark, six clicks from the split
     assert rock.take_chip(CLICK_DAMAGE_BASE) is False
 assert crack_stage(rock.chip_damage, rock.radius) == 3
 deepen.fill(PAPER)  # fresh paper: frame B must stand alone, not over frame A
 rock.draw(deepen)
-label(deepen, "7 CLICKS — STAGE 3", (CELL / 2, 240))
+label(deepen, "18 CLICKS — STAGE 3", ((CELL + 120) / 2, 690))
 frame_b_ink = interior_ink(deepen, rock.position, rock.radius)
 pygame.image.save(deepen, f"{OUT}/proof_cracks_deepen_b.png")
 
