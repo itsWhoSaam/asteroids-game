@@ -124,6 +124,9 @@ def test_play_respects_mute(monkeypatch):
     played = []
 
     class Recorder:
+        def set_volume(self, gain):
+            self.gain = gain  # playback now scales by the master level first
+
         def play(self):
             played.append(True)
 
@@ -257,7 +260,9 @@ def test_set_muted_preserves_unknown_save_keys(tmp_path):
     score = Score(path)
     score.set_muted(True)
 
-    assert load_save(path) == {"high_score": 5, "muted": True, "coins": 9}
+    # volume backfills to its default on load, exactly like high_score/muted
+    assert load_save(path) == {"high_score": 5, "muted": True, "volume": 100,
+                               "coins": 9}
 
 
 # --- HUD indicator ------------------------------------------------------------
