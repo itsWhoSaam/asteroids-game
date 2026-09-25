@@ -78,6 +78,18 @@ function main(): void {
 
   const persist = (s: WebSave): void => writeSave(window.localStorage, s);
 
+  // The single rAF loop: each active mode receives the frame delta. dt is
+  // clamped so a backgrounded tab's multi-second gap cannot fast-forward
+  // the sim on return (MAX_DT bounds each step inside the modes).
+  let lastNow = 0;
+  const loop = (nowMs: number): void => {
+    const dtMs = lastNow === 0 ? 0 : Math.min(nowMs - lastNow, 250);
+    lastNow = nowMs;
+    mode?.frame(dtMs);
+    requestAnimationFrame(loop);
+  };
+  requestAnimationFrame(loop);
+
   const startSolo = (name: string): void => {
     connection?.close();
     connection = null;
