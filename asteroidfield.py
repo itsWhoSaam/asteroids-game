@@ -10,6 +10,8 @@ from constants import (
     ASTEROID_SPEED_MAX,
     ASTEROID_SPEED_MIN,
     BOSS_WAVE_INTERVAL,
+    DIFFICULTY_DEFAULT,
+    DIFFICULTY_TABLE,
     SCREEN_HEIGHT,
     SCREEN_WIDTH,
     WAVE_SPAWN_DECAY,
@@ -19,7 +21,7 @@ from constants import (
 )
 
 
-def wave_params(wave):
+def wave_params(wave, mode=DIFFICULTY_DEFAULT):
     """Difficulty for a wave, pure so tests pin the math directly (F3).
 
     The spawn cadence tightens x0.9 per wave down to its floor; the asteroid
@@ -30,6 +32,14 @@ def wave_params(wave):
     the boss dict instead — the boss IS the wave's population, so the field
     spawns nothing. The zero cadence/speeds are inert filler keeping the
     dict shape uniform for callers that read all keys.
+
+    Tier 2 difficulty modes: the mode's multipliers scale the interval and
+    the whole speed band (optional kwarg — the handle_collisions precedent —
+    so the pinned single-argument calls keep their exact Normal numbers).
+    Multipliers are positive, so the Easy >= Normal >= Hard orderings survive
+    the scaling; the shared floor can equalize the intervals at late waves,
+    which the monotonicity tests allow. Speeds round to ints — the field's
+    random.randint needs them and Normal's 1.0 keeps the exact legacy band.
     """
     if wave % BOSS_WAVE_INTERVAL == 0:
         return {
@@ -39,13 +49,20 @@ def wave_params(wave):
             "speed_min": 0,
             "speed_max": 0,
         }
+    cfg = DIFFICULTY_TABLE[mode]
     return {
         "spawn_interval": max(
             WAVE_SPAWN_INTERVAL_FLOOR,
-            ASTEROID_SPAWN_RATE_SECONDS * WAVE_SPAWN_DECAY ** (wave - 1),
+            ASTEROID_SPAWN_RATE_SECONDS
+            * WAVE_SPAWN_DECAY ** (wave - 1)
+            * cfg["spawn_interval_mult"],
         ),
-        "speed_min": ASTEROID_SPEED_MIN + WAVE_SPEED_MIN_STEP * (wave - 1),
-        "speed_max": ASTEROID_SPEED_MAX + WAVE_SPEED_MAX_STEP * (wave - 1),
+        "speed_min": int(
+            round((ASTEROID_SPEED_MIN + WAVE_SPEED_MIN_STEP * (wave - 1)) * cfg["speed_mult"])
+        ),
+        "speed_max": int(
+            round((ASTEROID_SPEED_MAX + WAVE_SPEED_MAX_STEP * (wave - 1)) * cfg["speed_mult"])
+        ),
     }
 
 
@@ -96,8 +113,9 @@ class AsteroidField(pygame.sprite.Sprite):
         return asteroid
 
     def update(self, dt):
-        # Cadence and speed band come from the wave the game is on (F3).
-        params = wave_params(self.game.wave)
+        # Cadence and speed band come from the wave the game is on (F3),
+        # scaled by the run's difficulty mode (Tier 2).
+        params = wave_params(self.game.wave, self.game.mode)
         if params.get("boss"):
             # Boss wave (insanity threats): the field spawns nothing — the
             # boss is the wave's population, spawned by main's scheduler.

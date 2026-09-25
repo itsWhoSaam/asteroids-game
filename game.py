@@ -9,8 +9,8 @@ high_score_beaten event, and the save loader's read-modify-write contract
 """
 
 from constants import (
+    DIFFICULTY_TABLE,
     PLAYER_DEATH_BURST_INTENSITY,
-    PLAYER_START_LIVES,
     SHAKE_PLAYER_DEATH,
     VOLUME_STEP,
 )
@@ -20,6 +20,12 @@ from logger import log_event
 import sound
 from particles import burst
 from stats import RunStats
+
+
+def mode_lives(mode):
+    """Starting lives for a difficulty mode (Tier 2), pure for the table
+    tests: Easy 5, Normal the shipped 3, Hard 2."""
+    return DIFFICULTY_TABLE[mode]["lives"]
 
 
 class Game:
@@ -43,9 +49,15 @@ class Game:
         self.particles = particles
         self.shake = shake
         self._score = Score(save_path)
-        self.lives = PLAYER_START_LIVES
+        # Tier 2 difficulty modes: the mode persists across runs (the save
+        # merge carries it), so a fresh Game resumes the saved choice and
+        # starts on its lives row. Lives apply at start and at restart().
+        self.lives = mode_lives(self._score.mode)
         self.wave = 1
-        self.state = "playing"  # "playing" | "game_over"
+        # "playing" | "game_over" | "menu" — "menu" is main()'s boot state
+        # (the difficulty select); every run gate here checks != "playing",
+        # so a menu frame freezes the run for free.
+        self.state = "playing"
         # Insanity core: the shot-kill chain. Score-only — register_kill is
         # the ONLY route into it, so clicks and nukes stay combo-free.
         self.combo = ComboMeter()
@@ -131,6 +143,28 @@ class Game:
         """True once this run has beaten the persisted high score."""
         return self._score.beaten
 
+    @property
+    def mode(self):
+        """The selected difficulty (Tier 2), persisted via the Score seam."""
+        return self._score.mode
+
+    @property
+    def high_scores(self):
+        """Every mode's persisted best — the difficulty menu reads it."""
+        return self._score.mode_highs
+
+    def set_mode(self, mode):
+        """Select the difficulty for the NEXT run (start/game-over flow).
+
+        Persists through the Score seam, which retargets the high-score
+        comparison to the new mode's best. Lives apply at restart(), not
+        here — selection never lands mid-run, so both restart hooks and the
+        menu's launch land the mode's lives the same way.
+        """
+        self._score.set_mode(mode)
+        log_event("difficulty_selected", mode=mode)
+        return self._score.mode
+
     def add_score(self, points):
         """Points for a destroyed asteroid, through the F1 seam."""
         self._score.add_score(points)
@@ -208,7 +242,7 @@ class Game:
         # zeroed in place — both restart hooks land here, and the player
         # holds this very instance.
         self.stats.reset()
-        self.lives = PLAYER_START_LIVES
+        self.lives = mode_lives(self.mode)
         self.wave = 1
         self.state = "playing"
         # Insanity core: the combo meter and its run stats die with the run.

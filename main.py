@@ -8,6 +8,7 @@ from constants import (
     ASTEROID_MAX_RADIUS,
     BOSS_WAVE_INTERVAL,
     CLICK_DAMAGE_BASE,
+    DIFFICULTY_SELECT_KEYS,
     FLOAT_COLOR,
     FLOAT_FONT_SIZE,
     FLOAT_LIFETIME_SECONDS,
@@ -35,6 +36,7 @@ from constants import (
     SHAKE_LARGE_ASTEROID,
     SHOP_BRIGHT_COLOR,
 )
+from achievements import Achievements, event_stats_from
 from asteroid import Asteroid, Boss, boss_tier
 from asteroidfield import AsteroidField
 from blackhole import BlackHole, BlackHoleScheduler, spawn_position as hole_position
@@ -49,6 +51,7 @@ from hud import (
     draw_game_over,
     draw_help,
     draw_hud,
+    draw_mode_menu,
     draw_pause,
     draw_run_summary,
     hud_font,
@@ -388,9 +391,11 @@ def update_world(updatable, drones, asteroids, shots, player1, game, powerups,
     The pause flag is the entire gate (Tier 1): a frozen frame ticks nothing
     — sprites, drone turrets, the collision sweep, the wave clock, the
     banner and shake, bought-powerup durations — so nothing ages, dies, or
-    mints while the overlay is up. The event pump and the render stay live,
-    so mute, resume, restart, and quit all still answer. main() also gates
-    its destruction-diff poll and autosave on the same flag.
+    mints while the overlay is up. The boot menu (Tier 2 difficulty) freezes
+    the same way: nothing has spawned yet, so the select screen sits over a
+    still field. The event pump and the render stay live, so mute, resume,
+    restart, and quit all still answer. main() also gates its
+    destruction-diff poll and autosave on the same flag.
 
     Insanity core and threats (all keyword-optional, so the base flow works
     unchanged without them): the hit-stop freeze gates the sim's dt — the
@@ -403,7 +408,7 @@ def update_world(updatable, drones, asteroids, shots, player1, game, powerups,
     (the scheduler is told directly); and the combo window drains on sim
     time through game.tick.
     """
-    if game.paused:
+    if game.paused or game.state == "menu":
         return
     if hit_stop is not None:
         # Insanity core: the freeze-frame holds the whole simulation while
@@ -624,6 +629,15 @@ def restart_run(game, economy, field, banner, asteroids, *, saucers=None,
         clock.reset()
 
 
+def select_mode(game, economy, field, banner, asteroids, mode):
+    """The 1/2/3 difficulty select (Tier 2): persist the mode and launch
+    the run — the boot menu's and the game-over screen's key handler,
+    beside restart_run's R. Selection only happens outside a run, so
+    restart() landing the mode's lives is the whole application."""
+    game.set_mode(mode)
+    restart_run(game, economy, field, banner, asteroids)
+
+
 _float_font_cache = None
 
 
@@ -811,10 +825,10 @@ def main():
     sound.set_volume(game.volume)
 
     # The field reads the wave off the Game (F3), so it is built after one
-    # exists. The WAVE 1 flash arms at game start.
+    # exists. No boot banner flash — Tier 2's menu owns the first screen,
+    # and restart_run arms the WAVE 1 flash when a mode launches the run.
     asteroid_field = AsteroidField(game)
     banner = WaveBanner()
-    banner.show(game.wave)
     # Low-lives warning (UX wave): pulses the HUD lives line and prints the
     # edge vignette while exactly one life remains. Not run state — it
     # re-derives its gate from the Game every frame.
@@ -832,6 +846,16 @@ def main():
     if offline_banner.amount > 0:
         log_event("offline_earnings", amount=offline_banner.amount)
 
+    # Tier 2 difficulty modes: boot into the select menu; 1/2/3 launch the
+    # run through select_mode → restart_run. The Game itself still
+    # constructs in "playing" — the balance sim and the tests drive runs
+    # directly — the menu is main()'s flow, not the Game's default.
+    game.state = "menu"
+
+    # Achievements (Tier 2): the unlocked set loads from the shared save's
+    # merge; evaluation below is pure and idempotent, so it can run every
+    # unpaused frame.
+    achievements = Achievements()
     prev_asteroids = set(asteroids)
     autosave_timer = 0.0
 
@@ -896,11 +920,29 @@ def main():
                     economy.save()
                     pygame.quit()
                     return
-            if event.type == pygame.KEYDOWN and not game.paused:
+            if event.type == pygame.KEYDOWN and game.state in ("menu", "game_over"):
+                # Tier 2 difficulty modes: 1/2/3 pick the next run's mode
+                # and launch it — the start/game-over flow's select, beside
+                # F2's R/Q above (R restarts the current mode). Q also quits
+                # from the menu, so the boot screen is never a trap.
+                mode = DIFFICULTY_SELECT_KEYS.get(event.key)
+                if mode is not None:
+                    select_mode(
+                        game, economy, asteroid_field, banner, asteroids, mode
+                    )
+                elif event.key == pygame.K_q and game.state == "menu":
+                    economy.save()
+                    pygame.quit()
+                    return
+            if (event.type == pygame.KEYDOWN and not game.paused
+                    and game.state == "playing"):
                 # Shop keys 1–4 (idle shop): additive beside F2's R/Q —
                 # different keys, so neither branch shadows the other.
                 # A frozen run answers nothing but the overlay keys (and M
                 # above): ledger spends and nukes must not fire mid-pause.
+                # Tier 2: playing-only, because 1/2/3 mean difficulty select
+                # on the menu and game-over screens — the shop can no longer
+                # answer there and shadow the select.
                 purchase = shop.handle_key(event.key)
                 if purchase is not None:
                     x, y = shop.cell_center(purchase.name)
@@ -982,6 +1024,13 @@ def main():
                 )
             prev_asteroids = set(asteroids)
 
+            # Achievements (Tier 2): a pure per-frame evaluation over the
+            # run and lifetime counters — idempotent once everything is
+            # unlocked. New awards persist through the save merge and queue
+            # toasts. Frozen frames evaluate nothing, like the mint poll.
+            achievements.evaluate(event_stats_from(game, economy))
+            achievements.update(dt)
+
             autosave_timer += dt
             if autosave_timer >= IDLE_AUTOSAVE_SECONDS:
                 autosave_timer = 0.0
@@ -1010,9 +1059,13 @@ def main():
         drones.draw(screen, player1)
         shop.draw_panel(screen)
         shop.draw_powerups(screen)
-        if game.state == "game_over":
+        achievements.draw(screen)  # the top-center toast seat, under overlays
+        if game.state == "menu":
+            # Tier 2: the difficulty select over the still, empty field.
+            draw_mode_menu(screen, game.mode, game.high_scores)
+        elif game.state == "game_over":
             draw_game_over(screen, game.score, new_high=game.new_high,
-                           top_chain=game.combo.top,
+                           mode=game.mode, top_chain=game.combo.top,
                            best_multiplier=game.combo.best_multiplier)
             # Run stats (run-stats PR): the run's counters, in a summary
             # block under the game-over prompt.
