@@ -18,6 +18,15 @@ import pygame
 
 from constants import (
     ASTEROID_MIN_RADIUS,
+    SFX_BLACKHOLE,
+    SFX_BLACKHOLE_BRIGHTNESS,
+    SFX_BLACKHOLE_DURATION,
+    SFX_BLACKHOLE_SWEEP,
+    SFX_BLACKHOLE_VOLUME,
+    SFX_BOSS,
+    SFX_BOSS_DURATION,
+    SFX_BOSS_THUMP_HZ,
+    SFX_BOSS_VOLUME,
     SFX_CHANNELS,
     SFX_COMBO_BREAK,
     SFX_COMBO_BREAK_DURATION,
@@ -44,6 +53,10 @@ from constants import (
     SFX_POWERUP_SWEEP,
     SFX_POWERUP_VOLUME,
     SFX_SAMPLE_RATE,
+    SFX_SAUCER,
+    SFX_SAUCER_DURATION,
+    SFX_SAUCER_TONES,
+    SFX_SAUCER_VOLUME,
     SFX_SHOOT,
     SFX_SHOOT_DURATION,
     SFX_SHOOT_SWEEP,
@@ -79,6 +92,10 @@ def init():
             # Insanity core (recipes live in the INSANITY constants block):
             SFX_DASH: build_dash(),
             SFX_COMBO_BREAK: build_combo_break(),
+            # Insanity threats:
+            SFX_SAUCER: build_saucer(),
+            SFX_BOSS: build_boss(),
+            SFX_BLACKHOLE: build_blackhole(),
         }
     except Exception as exc:
         _sounds = {}
@@ -254,3 +271,57 @@ def build_combo_break():
         )
 
     return _make_sound(_render(SFX_COMBO_BREAK_DURATION, wave))
+
+
+def build_saucer():
+    """A two-tone warble (insanity threats): two detuned tones beating
+    against each other while the shot leaves — the UFO voice."""
+    tone_a, tone_b = SFX_SAUCER_TONES
+
+    def wave(t, progress):
+        window = min(progress / 0.2, (1.0 - progress) / 0.3, 1.0)
+        beat = (
+            chirp(t, tone_a, tone_a, SFX_SAUCER_DURATION) * 0.5
+            + chirp(t, tone_b, tone_b, SFX_SAUCER_DURATION) * 0.5
+        )
+        return beat * max(0.0, window) * SFX_SAUCER_VOLUME
+
+    return _make_sound(_render(SFX_SAUCER_DURATION, wave))
+
+
+def build_boss():
+    """A low double-thump (insanity threats): the field's weight arriving —
+    two 90 Hz thumps, the second a fourth lower and heavier."""
+
+    def wave(t, progress):
+        # Each half of the buffer is one thump: a fast-decaying downward
+        # sweep, the second a fourth lower and heavier.
+        half = 0.5
+        if progress < half:
+            local = progress / half
+            hz = SFX_BOSS_THUMP_HZ
+            weight = 0.8
+        else:
+            local = (progress - half) / half
+            hz = SFX_BOSS_THUMP_HZ * 2 / 3  # a fourth down
+            weight = 1.0
+        thump = chirp(local * SFX_BOSS_DURATION / 2, hz, hz * 0.5,
+                      SFX_BOSS_DURATION / 2)
+        return thump * math.exp(-5.0 * local) * weight * SFX_BOSS_VOLUME
+
+    return _make_sound(_render(SFX_BOSS_DURATION, wave))
+
+
+def build_blackhole():
+    """A low rumble (insanity threats): dull noise over a sinking tone,
+    swelling slowly — the well breathing open."""
+    start, end = SFX_BLACKHOLE_SWEEP
+    rng = random.Random(SFX_NOISE_SEED)  # deterministic, like the explosions
+
+    def wave(t, progress):
+        window = min(progress / 0.4, (1.0 - progress) / 0.4, 1.0)
+        noise = rng.uniform(-1.0, 1.0) * SFX_BLACKHOLE_BRIGHTNESS
+        tone = chirp(t, start, end, SFX_BLACKHOLE_DURATION) * 0.7
+        return (noise + tone) * max(0.0, window) * SFX_BLACKHOLE_VOLUME
+
+    return _make_sound(_render(SFX_BLACKHOLE_DURATION, wave))

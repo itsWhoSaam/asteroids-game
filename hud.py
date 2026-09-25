@@ -12,6 +12,11 @@ import pygame
 
 from constants import (
     ASTEROID_MIN_RADIUS,
+    BOSS_BAR_FILL_COLOR,
+    BOSS_BAR_HEIGHT,
+    BOSS_BAR_TRACK_COLOR,
+    BOSS_BAR_WIDTH,
+    BOSS_BAR_Y,
     COMBO_BREAK_MIN_CHAIN,
     COMBO_CAP,
     COMBO_COLOR,
@@ -266,6 +271,19 @@ def draw_hud(screen, score, lives=0, wave=0, muted=False, combo=None,
         surface = font.render("MUTED", True, HUD_COLOR)
         rect = surface.get_rect(topright=(SCREEN_WIDTH - HUD_MARGIN, HUD_MARGIN))
         screen.blit(surface, rect)
+
+
+def draw_boss_bar(screen, boss):
+    """Top-center boss HP bar (insanity threats), shown during boss waves:
+    a dim track across the top with the hostile-red fill shrinking as the
+    pool drains. The fraction is the boss's own hp/max_hp — one source of
+    truth, the fight reads its own state."""
+    fraction = max(boss.hp, 0) / boss.max_hp
+    x = (SCREEN_WIDTH - BOSS_BAR_WIDTH) / 2
+    track = pygame.Rect(x, BOSS_BAR_Y, BOSS_BAR_WIDTH, BOSS_BAR_HEIGHT)
+    fill = pygame.Rect(x, BOSS_BAR_Y, BOSS_BAR_WIDTH * fraction, BOSS_BAR_HEIGHT)
+    pygame.draw.rect(screen, BOSS_BAR_TRACK_COLOR, track, border_radius=4)
+    pygame.draw.rect(screen, BOSS_BAR_FILL_COLOR, fill, border_radius=4)
 
 
 _game_over_font_cache = None

@@ -1,4 +1,5 @@
 import pygame
+import blackhole
 from circleshape import CircleShape
 from constants import (
     DASH_COOLDOWN_S,
@@ -185,6 +186,10 @@ class Player(CircleShape):
             self.move(dt)
         if keys[pygame.K_s]:
             self.move(-dt)
+        # Insanity threats: gravity drifts the ship toward any live well at
+        # half strength (BLACK_HOLE_PLAYER_FACTOR) — a position drift, not
+        # velocity: the dash owns the only velocity the ship has.
+        self.position += blackhole.pull_at(self.position, player=True) * dt
         # A held space fires on the cooldown clock, which only advances on
         # sim time. A frozen frame (hit-stop) steps dt=0: firing here would
         # machine-gun stacked shots at a paused cooldown, so a zero-dt

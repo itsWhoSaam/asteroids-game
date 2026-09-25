@@ -330,3 +330,89 @@ SFX_COMBO_BREAK = "combo_break"
 SFX_COMBO_BREAK_DURATION = 0.5
 SFX_COMBO_BREAK_SWEEP = (520.0, 140.0)
 SFX_COMBO_BREAK_VOLUME = 0.5
+
+# --- Insanity threats: bosses, saucers, black holes ------------------------
+# All numbers here are playtest starting values from the insanity spec; none
+# is structural. Every tunable lives in this one block — tuning happens
+# here, never in gameplay code.
+
+# Boss waves: every BOSS_WAVE_INTERVAL-th wave fields one multi-hit boss
+# instead of the regular field. Tier = wave // interval, capped by the
+# radius table's largest tier. Bosses pay score through register_kill only
+# (BOSS_POINTS × the combo multiplier) — never credits, never pickups.
+BOSS_WAVE_INTERVAL = 5
+BOSS_RADIUS_TIERS = {1: 4, 2: 5, 3: 6}  # × ASTEROID_MIN_RADIUS
+BOSS_HP_PER_TIER = 6
+BOSS_POINTS = 300
+# Minion checkpoint fractions of the boss's max HP: crossing each threshold
+# (70/40/15%) spawns two mediums at the boss — the fight gets harder as it
+# gets safer. A fixed ladder, so every tier fields three waves.
+MINION_CHECKPOINT_FRACTIONS = (0.70, 0.40, 0.15)
+MINION_RADIUS_MULTIPLIER = 2  # medium asteroids, per checkpoint
+SHAKE_BOSS_DEATH = 16.0       # px — the boss's death rocks the screen hard
+
+# The boss health bar (hud.draw_boss_bar): top-center during boss waves.
+BOSS_BAR_WIDTH = 480
+BOSS_BAR_HEIGHT = 10
+BOSS_BAR_Y = HUD_MARGIN + 6
+BOSS_BAR_FILL_COLOR = PALETTE["fringe_r"]  # hostile red fill
+BOSS_BAR_TRACK_COLOR = (40, 40, 60)        # dim track against the paper
+
+# Enemy saucers: from wave 2 a jittered interval enters one from a random
+# edge; kinds alternate. Big saucers cross slower and fire 3-way spreads;
+# small saucers cross fast and fire aimed single shots — worth far more.
+SAUCER_FIRST_WAVE = 2
+SAUCER_SPAWN_INTERVAL_S = 20.0
+SAUCER_SPAWN_JITTER_S = 8.0
+SAUCER_RADIUS = {"big": 24, "small": 16}
+SAUCER_KINDS = {
+    "big":   {"fire_interval": 2.0, "spread": 3, "shot_speed": 350.0,
+              "hp": 2, "points": 200, "speed": 80.0},
+    "small": {"fire_interval": 1.2, "spread": 1, "shot_speed": 450.0,
+              "hp": 1, "points": 1000, "speed": 140.0},
+}
+SAUCER_KIND_ORDER = ("big", "small")  # the alternation order
+SAUCER_BOB_AMPLITUDE = 60    # px of sine bob under the horizontal cross
+SAUCER_BOB_FREQUENCY = 0.5   # Hz — one full bob every two seconds
+SAUCER_SPREAD_DEGREES = 20.0 # between the big saucer's three shots
+SAUCER_EDGE_MARGIN = 40      # cull margin beyond is_off_screen's radius
+SAUCER_SHAKE_DEATH = 8.0     # px — a saucer's death kicks the screen
+
+# Black holes: from wave 3 a timer drops a gravity well that bends every
+# trajectory. It kills nothing directly — the danger is eaten agency and
+# drifted rocks. It never spawns during a boss wave.
+BLACK_HOLE_FIRST_WAVE = 3
+BLACK_HOLE_FIRST_DELAY_S = 15.0
+BLACK_HOLE_REPEAT_DELAY_S = 22.0
+BLACK_HOLE_JITTER_S = 8.0
+BLACK_HOLE_LIFETIME_S = 12.0
+BLACK_HOLE_WARNING_S = 2.0   # the final blink window
+BLACK_HOLE_RADIUS = 26
+# accel_at: inverse-falloff pull toward the hole, capped at the core. The
+# min distance keeps the math finite inside the well itself.
+BLACK_HOLE_STRENGTH = 4e6
+BLACK_HOLE_FALLOFF = 1.5
+BLACK_HOLE_MAX_ACCEL = 2000.0
+BLACK_HOLE_MIN_DIST = 40.0
+BLACK_HOLE_PLAYER_FACTOR = 0.5  # the ship fights the pull at half strength
+BLACK_HOLE_SPAWN_MARGIN = 100   # px kept clear of every screen edge
+
+# Saucer fire: a two-tone warble — two detuned tones beating against each
+# other while the shot leaves.
+SFX_SAUCER = "saucer"
+SFX_SAUCER_DURATION = 0.25
+SFX_SAUCER_TONES = (620.0, 780.0)
+SFX_SAUCER_VOLUME = 0.4
+
+# Boss spawn: a low double-thump — the field's weight arriving.
+SFX_BOSS = "boss"
+SFX_BOSS_DURATION = 0.9
+SFX_BOSS_THUMP_HZ = 90.0
+SFX_BOSS_VOLUME = 0.7
+
+# Black hole: a low rumble — noise over a sinking tone, swelling slowly.
+SFX_BLACKHOLE = "blackhole"
+SFX_BLACKHOLE_DURATION = 1.1
+SFX_BLACKHOLE_SWEEP = (110.0, 45.0)
+SFX_BLACKHOLE_BRIGHTNESS = 0.35
+SFX_BLACKHOLE_VOLUME = 0.5

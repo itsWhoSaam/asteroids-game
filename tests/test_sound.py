@@ -26,6 +26,9 @@ from constants import (
     SFX_GAME_OVER,
     SFX_POWERUP,
     SFX_SAMPLE_RATE,
+    SFX_SAUCER,
+    SFX_BLACKHOLE,
+    SFX_BOSS,
     SFX_SHOOT,
     SCREEN_HEIGHT,
     SCREEN_WIDTH,
@@ -80,6 +83,9 @@ def test_init_builds_every_named_cue():
         SFX_GAME_OVER,
         SFX_DASH,
         SFX_COMBO_BREAK,
+        SFX_SAUCER,
+        SFX_BOSS,
+        SFX_BLACKHOLE,
     }
     sound.init()  # idempotent: a second call must not rebuild or crash
     assert set(sound._sounds)  # still populated

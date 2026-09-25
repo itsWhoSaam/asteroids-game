@@ -1,4 +1,5 @@
 import pygame
+import blackhole
 from circleshape import CircleShape
 from constants import ASTEROID_MAX_RADIUS, LINE_WIDTH, PALETTE, SHOT_RADIUS
 
@@ -11,6 +12,9 @@ class Shot(CircleShape):
         pygame.draw.circle(screen, PALETTE["shot"], self.position, self.radius, LINE_WIDTH)
 
     def update(self, dt):
+        # Insanity threats: live black holes bend every shot's flight —
+        # the pull rides the velocity before the position step.
+        self.velocity += blackhole.pull_at(self.position) * dt
         self.position += self.velocity * dt
         if self.is_off_screen(ASTEROID_MAX_RADIUS):
             self.kill()

@@ -4,6 +4,7 @@ import pygame
 
 from constants import (
     ASTEROID_MAX_RADIUS,
+    BOSS_WAVE_INTERVAL,
     CLICK_DAMAGE_BASE,
     FLOAT_COLOR,
     FLOAT_FONT_SIZE,
@@ -25,16 +26,29 @@ from constants import (
     SHAKE_LARGE_ASTEROID,
     SHOP_BRIGHT_COLOR,
 )
-from asteroid import Asteroid
+from asteroid import Asteroid, Boss, boss_tier
 from asteroidfield import AsteroidField
+from blackhole import BlackHole, BlackHoleScheduler, spawn_position as hole_position
 from economy import Economy
 from drones import DroneBay, OfflineBanner, drone_dps
 from game import Game
-from hud import WaveBanner, draw_game_over, draw_hud, hud_font, points_for
+from hud import (
+    WaveBanner,
+    draw_boss_bar,
+    draw_game_over,
+    draw_hud,
+    hud_font,
+)
 from logger import log_state, log_event
 from particles import Particle, Shake, burst
 from player import Player
 from powerups import PowerUp, drops_powerup, pick_type
+from saucer import (
+    Saucer,
+    SaucerScheduler,
+    SaucerShot,
+    spawn_side_position,
+)
 from shop import Shop
 import sound
 from shot import Shot
@@ -99,7 +113,7 @@ def try_dash(player, game):
 
 
 def handle_collisions(asteroids, shots, player1, game, powerups, shake=None,
-                      hit_stop=None):
+                      hit_stop=None, saucers=None, enemy_shots=None):
     # The sweep reports hits to the Game instead of exiting the process
     # (engagement F2): a hit costs one of the lives, the ship respawns
     # invulnerable, and the run ends only at zero lives. Invulnerability is
@@ -138,7 +152,7 @@ def handle_collisions(asteroids, shots, player1, game, powerups, shake=None,
                 # real shots into this same group) advance the combo chain
                 # and pay points × its multiplier. Chip clicks and nukes
                 # never route here: credits-only, combo-free.
-                game.register_kill(points_for(asteroid.radius))
+                game.register_kill(asteroid.kill_points)
                 shot_kills += 1
                 # A destroyed non-small rock occasionally pays a pickup (F4).
                 # The pure rolls keep the decision testable; the new PowerUp
@@ -152,6 +166,62 @@ def handle_collisions(asteroids, shots, player1, game, powerups, shake=None,
     # Insanity core: the frame's shot kills buy a freeze — one rock is a
     # base beat, several dying in one sweep is the multi beat.
     freeze_for_destructions(hit_stop, shot_kills)
+
+    # Insanity threats: the four hostile branches, all guarded by the same
+    # playing/invulnerable gates as the asteroid↔player branch above.
+    if saucers is not None and enemy_shots is not None:
+        # 1 · Enemy fire vs asteroids: real splits through take_hit — the
+        # plain-rock path is the ordinary split (no combo, no points), the
+        # boss soaks it as one HP like any shot. Destruction is destruction:
+        # these kills buy hit-stop too.
+        for shot in enemy_shots:
+            if not shot.alive():
+                continue
+            for asteroid in asteroids:
+                if not asteroid.alive() or not asteroid.collides_with(shot):
+                    continue
+                shot.kill()
+                if asteroid.take_hit():
+                    burst(asteroid.position, asteroid.radius)
+                    sound.play_explosion(asteroid.radius)
+                    shot_kills += 1
+                break
+        freeze_for_destructions(hit_stop, shot_kills)
+        # 2 & 3 · Saucers and their fire vs the ship: a hit costs a life
+        # through the standard player_hit path — shield absorbs, i-frames
+        # (respawn or dash) protect.
+        if game.state == "playing" and not player1.invulnerable:
+            for saucer in saucers:
+                if saucer.alive() and saucer.collides_with(player1):
+                    log_event("player_hit")
+                    game.player_hit()
+                    break
+            else:
+                for shot in enemy_shots:
+                    if shot.alive() and shot.collides_with(player1):
+                        shot.kill()
+                        log_event("player_hit")
+                        game.player_hit()
+                        break
+        # 4 · Player fire vs saucers: the saucer soaks the shot; its death
+        # pays SAUCER_KINDS[kind]["points"] through register_kill — a kill
+        # exactly like any other, comboing and hit-stopping with the rest.
+        for saucer in saucers:
+            if not saucer.alive():
+                continue
+            for shot in shots:
+                if not shot.alive() or not saucer.collides_with(shot):
+                    continue
+                shot.kill()
+                burst(saucer.position, saucer.radius)
+                if saucer.take_hit():
+                    if shake is not None:
+                        shake.kick(SHAKE_LARGE_ASTEROID)
+                    log_event("saucer_defeated", kind=saucer.kind)
+                    game.register_kill(saucer.points)
+                    shot_kills += 1
+                break
+        freeze_for_destructions(hit_stop, shot_kills)
 
     # Pickups collect on player overlap — during play only, mirroring the
     # hit branch: a dead run grants nothing (F4).
@@ -182,6 +252,27 @@ def maybe_advance_wave(game, field, banner):
     field.start_wave()  # fresh spawn clock and populated guard for the new wave
     banner.show(game.wave)
     log_event("wave_started", wave=game.wave)
+
+
+def maybe_boss_wave(game, field):
+    """Spawn the wave-5 boss once its wave's field is empty (insanity threats).
+
+    Guards: playing state, the wave multiple, and the field's populated
+    guard — at spawn there must be no live rocks (the field spawns nothing
+    on a boss wave anyway). The boss counts as the wave's population:
+    bumping field.spawned_this_wave keeps maybe_advance_wave's cleared-field
+    advance working unchanged after the boss dies. Runs right after the
+    wave counter ticks, so a fresh boss wave arms the same frame.
+    """
+    if game.state != "playing" or game.wave % BOSS_WAVE_INTERVAL:
+        return
+    if field.spawned_this_wave > 0 or len(game.asteroids):
+        return
+    tier = boss_tier(game.wave)
+    Boss(SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2, tier)
+    field.spawned_this_wave += 1
+    log_event("boss_spawned", wave=game.wave, tier=tier)
+    sound.play(sound.SFX_BOSS)
 
 
 class _ClickPoint:
@@ -317,6 +408,12 @@ def main():
     floaters = pygame.sprite.Group()
     powerups = pygame.sprite.Group()
     particles = pygame.sprite.Group()
+    # Insanity threats: enemy fire and world hazards get their own groups —
+    # `shots` stays the player-and-drone group, so every existing
+    # combo/score branch keeps reading only friendly fire.
+    enemy_shots = pygame.sprite.Group()
+    saucers = pygame.sprite.Group()
+    blackholes = pygame.sprite.Group()
 
     Asteroid.containers = (asteroids, updatable, drawable)
     Shot.containers = (shots, updatable, drawable)
@@ -324,6 +421,9 @@ def main():
     Particle.containers = (particles, updatable, drawable)
     AsteroidField.containers = updatable
     FloatingText.containers = (floaters, updatable, drawable)
+    SaucerShot.containers = (enemy_shots, updatable, drawable)
+    Saucer.containers = (saucers, drawable)
+    BlackHole.containers = (blackholes, updatable, drawable)
 
     Player.containers = (updatable, drawable)
     player1 = Player(SCREEN_WIDTH/2, SCREEN_HEIGHT/2 )
@@ -334,6 +434,10 @@ def main():
     # Insanity core: the hit-stop freeze lives in main for the same reason —
     # it gates the sim dt, not the world.
     hit_stop = HitStop()
+    # Insanity threats: the saucer and black-hole spawn clocks live in main
+    # (they schedule world events; they are not run state).
+    saucer_clock = SaucerScheduler()
+    hole_clock = BlackHoleScheduler()
     game = Game(player1, asteroids, shots, powerups, particles=particles, shake=shake)
     # F6: start from the persisted mute preference — the sound module only
     # learns it here; playback stays suppressed either way.
@@ -385,6 +489,16 @@ def main():
                     # rock as a cull so the diff poll never mints for restart.
                     for asteroid in asteroids:
                         asteroid.despawned = True
+                    # Insanity threats: restart clears the hostiles and any
+                    # live well too — each a cull, never a paid kill.
+                    for saucer in saucers:
+                        saucer.despawned = True
+                        saucer.kill()
+                    for hole in blackholes:
+                        hole.despawned = True
+                        hole.kill()
+                    for shot in list(enemy_shots):
+                        shot.kill()
                     game.restart()
                     # Bought timed effects die with the run: the paid
                     # use is consumed, the new run starts clean.
@@ -394,6 +508,9 @@ def main():
                     # before the fresh run spawns anything.
                     asteroid_field.start_wave()
                     banner.show(game.wave)
+                    # The threat clocks re-arm with the run (insanity threats).
+                    saucer_clock.reset()
+                    hole_clock.reset()
                 elif event.key == pygame.K_q:
                     economy.save()
                     pygame.quit()
@@ -468,9 +585,27 @@ def main():
         # the player's own — one destruction path pays every source.
         drones.update(sim_dt, player1, asteroids, shots)
 
+        # Saucers update explicitly, not through the group pass (insanity
+        # threats): their step needs the player and the enemy group, which
+        # the updatable pass doesn't forward.
+        saucers.update(sim_dt, player1, enemy_shots)
+
+        # Threat spawn clocks (insanity threats): saucers from wave 2, black
+        # holes from wave 3 — never during game over, and a hole never opens
+        # during a boss wave (the scheduler is told directly).
+        if game.state == "playing":
+            kind = saucer_clock.update(sim_dt, game.wave)
+            if kind is not None:
+                Saucer(*spawn_side_position(kind), kind)
+            if hole_clock.update(sim_dt, game.wave,
+                                 game.wave % BOSS_WAVE_INTERVAL == 0):
+                BlackHole(*hole_position())
+
         handle_collisions(asteroids, shots, player1, game, powerups, shake,
-                          hit_stop=hit_stop)
+                          hit_stop=hit_stop, saucers=saucers,
+                          enemy_shots=enemy_shots)
         maybe_advance_wave(game, asteroid_field, banner)
+        maybe_boss_wave(game, asteroid_field)
         game.tick(sim_dt)  # insanity core: the combo window drains on sim time
         banner.update(sim_dt)
         shake.update(dt)  # F5: decay toward still before the frame is blitted
@@ -481,8 +616,13 @@ def main():
         Asteroid.speed_scale = economy.chrono_scale()
 
         # Destruction → credits: diff this frame's field against the last,
-        # mint once per wreck, float a '+N' over the wreck.
+        # mint once per wreck, float a '+N' over the wreck. Bosses route
+        # through the same diff but mint nothing (mintable=False) — their
+        # death is score-only, logged here where the paid kill is known.
         for wreck in destroyed_asteroids(prev_asteroids, asteroids):
+            if isinstance(wreck, Boss):
+                log_event("boss_defeated", wave=game.wave)
+                continue
             payout = economy.mint(wreck.radius)
             log_event("credit_minted", amount=payout)
             FloatingText(wreck.position.x, wreck.position.y, payout)
@@ -507,6 +647,14 @@ def main():
                  muted=game.muted, combo=game.combo,
                  dash_timer=player1.dash_timer if game.state == "playing" else None)
         draw_credits(screen, economy.credits)
+        # The boss HP bar sits top-center during a boss fight (insanity
+        # threats) — under the HUD rows, over the world.
+        if game.state == "playing":
+            live_boss = next(
+                (rock for rock in asteroids if isinstance(rock, Boss)), None
+            )
+            if live_boss is not None:
+                draw_boss_bar(screen, live_boss)
         offline_banner.update(dt)
         offline_banner.draw(screen)
         drones.draw(screen, player1)
