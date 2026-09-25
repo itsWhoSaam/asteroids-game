@@ -13,6 +13,7 @@ from constants import (
     HUD_MARGIN,
     IDLE_AUTOSAVE_SECONDS,
     MAX_DT,
+    PALETTE,
     POWERUPS,
     POWERUP_ACTIVE_COLOR,
     SFX_POWERUP,
@@ -23,6 +24,7 @@ from constants import (
 )
 from asteroid import Asteroid
 from asteroidfield import AsteroidField
+from comicfx import build_background
 from economy import Economy
 from drones import DroneBay, OfflineBanner, drone_dps
 from game import Game
@@ -293,6 +295,12 @@ def main():
     # blit origin — entity draw calls and positions never change. Built once.
     world = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT))
 
+    # V3: the comic background pre-renders once alongside it — halftone
+    # dot-screen and radial action lines over the paper — and blits every
+    # frame as a screen-level print texture. Entity draw functions never
+    # paint background; all background treatment lives in this composition.
+    background = build_background(SCREEN_WIDTH, SCREEN_HEIGHT)
+
     while True:
         log_state()
 
@@ -399,15 +407,18 @@ def main():
             autosave_timer = 0.0
             economy.save()
 
-        world.fill("black")
+        world.fill(PALETTE["paper"])
         for each in drawable:
             each.draw(world)
 
         # The world is blitted at the shaken offset — the draw origin moves,
         # entities don't. HUD and banners draw after, unshaken, so the
         # score stays readable while the world rocks (F5).
-        screen.fill("black")
+        screen.fill(PALETTE["paper"])
         screen.blit(world, shake.offset())
+        # V3: the print texture sits over the shaken world and under the HUD
+        # — screen-level, so it never scrolls or shakes with the world.
+        screen.blit(background, (0, 0))
 
         draw_hud(screen, game.score, lives=game.lives, wave=game.wave,
                  muted=game.muted)

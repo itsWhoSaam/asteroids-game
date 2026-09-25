@@ -51,7 +51,33 @@ WAVE_BANNER_SECONDS = 2.0         # WAVE n banner flash duration
 HUD_FONT_SIZE = 28
 HUD_MARGIN = 12
 HUD_LINE_STEP = 34
-HUD_COLOR = "white"
+
+# --- Spider-Verse palette (visual V1) --------------------------------------
+# The single place color lives: every entity draw, screen fill, and the HUD
+# text constant resolve through this table, and the pixel tests assert
+# against these same entries — a regrade is a one-line diff per swatch.
+# Swatches are the spec's tunable "Miles-mode v1" identity.
+PALETTE = {
+    "paper": (23, 18, 58),         # deep-indigo void behind everything
+    "halftone": (62, 51, 140),     # print-screen dots over the paper (V3)
+    "action_line": (40, 32, 94),   # faint radial speed lines (V3)
+    "ship": (62, 230, 240),        # cyan hull (also the shield's hue family)
+    "fringe_r": (255, 51, 85),     # chromatic-aberration pair (outline pass V2)
+    "fringe_c": (47, 212, 255),
+    "asteroid_l": (180, 77, 255),  # one hue per rock size tier
+    "asteroid_m": (255, 45, 149),
+    "asteroid_s": (255, 107, 213),
+    "shot": (255, 233, 74),
+    "powerup_shield": (62, 230, 240),  # effect identity colors (F4)
+    "powerup_rapid": (255, 154, 62),
+    "powerup_triple": (255, 78, 205),
+    "spark": (255, 210, 63),       # warm comic debris (F5)
+    "hud_ink": (255, 247, 230),    # warm white HUD text
+    "hud_panel": (255, 210, 63),   # yellow panels (HUD restyle, later visual PR)
+    "banner": (255, 210, 63),
+}
+
+HUD_COLOR = PALETTE["hud_ink"]
 
 # --- Idle economy core ---------------------------------------------------
 # All balance numbers here are playtest starting values from the idle spec;
@@ -203,6 +229,7 @@ POWERUP_SHIELD_RING_GAP = 8        # px between hull edge and the shield ring
 PARTICLES_PER_RADIUS = 0.5         # burst count = radius × intensity × this
 PARTICLE_LIFETIME_SECONDS = 0.6
 PARTICLE_RADIUS = 3                # spark size at birth, shrinking with life
+PARTICLE_SPAWN_POP = 0.6           # birth-size boost fraction (visual V2 size-pop)
 PARTICLE_MIN_SPEED = 40            # px/s debris speed band, before intensity
 PARTICLE_MAX_SPEED = 160
 PLAYER_DEATH_BURST_INTENSITY = 4.0  # the ship's death bursts harder than rocks

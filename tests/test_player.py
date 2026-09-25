@@ -3,6 +3,7 @@
 import pygame
 
 from constants import (
+    PALETTE,
     PLAYER_BLINK_HZ,
     PLAYER_INVULNERABILITY_SECONDS,
     SCREEN_HEIGHT,
@@ -11,14 +12,14 @@ from constants import (
 from player import Player
 
 
-def nonblack_samples(surface):
+def nonbackground_samples(surface):
     """Pixels sampled across the ship's bounding box that are not background."""
     box = [
         surface.get_at((x, y))
         for x in range(600, 681, 4)
         for y in range(320, 401, 4)
     ]
-    return [pixel for pixel in box if pixel != (0, 0, 0, 255)]
+    return [pixel for pixel in box if pixel != (*PALETTE["paper"], 255)]
 
 
 def test_respawn_centers_zeroes_velocity_and_grants_the_window():
@@ -53,15 +54,15 @@ def test_blink_hides_the_ship_on_alternate_half_cycles():
 
     visible = Player(SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2)
     visible.invulnerability_timer = 2.0  # first half-cycle: drawn
-    screen.fill("black")
+    screen.fill(PALETTE["paper"])
     visible.draw(screen)
-    assert nonblack_samples(screen)
+    assert nonbackground_samples(screen)
 
     hidden = Player(SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2)
     hidden.invulnerability_timer = 2.0 - 0.5 / PLAYER_BLINK_HZ  # second half-cycle
-    screen.fill("black")
+    screen.fill(PALETTE["paper"])
     hidden.draw(screen)
-    assert nonblack_samples(screen) == []
+    assert nonbackground_samples(screen) == []
 
 
 def test_blink_ends_when_the_window_expires():
@@ -71,7 +72,7 @@ def test_blink_ends_when_the_window_expires():
     player = Player(SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2)
     player.invulnerability_timer = -1.25  # long expired, mid "hidden" phase
 
-    screen.fill("black")
+    screen.fill(PALETTE["paper"])
     player.draw(screen)
 
-    assert nonblack_samples(screen)
+    assert nonbackground_samples(screen)

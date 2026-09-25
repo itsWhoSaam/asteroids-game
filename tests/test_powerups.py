@@ -11,6 +11,7 @@ import pytest
 from asteroid import Asteroid
 from constants import (
     ASTEROID_MIN_RADIUS,
+    PALETTE,
     PLAYER_RADIUS,
     PLAYER_SHOOT_COOLDOWN_SECONDS,
     POWERUP_DROP_CHANCE,
@@ -342,7 +343,7 @@ def test_pickup_renders_its_letter_inside_the_circle():
     screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
     pickup = PowerUp(640, 360, PowerUpType.SHIELD)
 
-    screen.fill("black")
+    screen.fill(PALETTE["paper"])
     pickup.draw(screen)
 
     # the letter is stamped mid-circle (the outline at r=14 is outside the box)
@@ -351,7 +352,7 @@ def test_pickup_renders_its_letter_inside_the_circle():
         for dx in range(-8, 9, 2)
         for dy in range(-8, 9, 2)
     ]
-    assert any(pixel != (0, 0, 0, 255) for pixel in box)
+    assert any(pixel != (*PALETTE["paper"], 255) for pixel in box)
 
 
 def test_shield_ring_draws_outside_the_hull_only_while_stocked():
@@ -363,11 +364,15 @@ def test_shield_ring_draws_outside_the_hull_only_while_stocked():
     # pygame outlines cover [r - width, r), so sample the stroke's band
     band = range(int(SCREEN_WIDTH / 2) + ring - 3, int(SCREEN_WIDTH / 2) + ring + 4)
 
-    screen.fill("black")
+    screen.fill(PALETTE["paper"])
     player.draw(screen)
-    assert all(screen.get_at((x, ring_y)) == (0, 0, 0, 255) for x in band)  # no ring
+    assert all(
+        screen.get_at((x, ring_y)) == (*PALETTE["paper"], 255) for x in band
+    )  # no ring
 
     player.activate_powerup(PowerUpType.SHIELD)
-    screen.fill("black")
+    screen.fill(PALETTE["paper"])
     player.draw(screen)
-    assert any(screen.get_at((x, ring_y)) != (0, 0, 0, 255) for x in band)  # ring on
+    assert any(
+        screen.get_at((x, ring_y)) != (*PALETTE["paper"], 255) for x in band
+    )  # ring on

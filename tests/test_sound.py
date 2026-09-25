@@ -15,6 +15,7 @@ import pytest
 import sound
 from asteroid import Asteroid
 from constants import (
+    PALETTE,
     SFX_CHANNELS,
     SFX_EXPLOSION_LARGE,
     SFX_EXPLOSION_MEDIUM,
@@ -266,12 +267,12 @@ def test_hud_shows_muted_indicator_only_while_muted():
     """A MUTED tag appears top-right while muted and nowhere otherwise."""
     pygame.init()
     screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
-    rect = hud_font().render("MUTED", True, "white").get_rect(
+    rect = hud_font().render("MUTED", True, PALETTE["hud_ink"]).get_rect(
         topright=(SCREEN_WIDTH - HUD_MARGIN, HUD_MARGIN)
     )
 
     def lit_samples(muted):
-        screen.fill("black")
+        screen.fill(PALETTE["paper"])
         draw_hud(screen, 0, muted=muted)
         return [
             screen.get_at((x, y))
@@ -279,5 +280,9 @@ def test_hud_shows_muted_indicator_only_while_muted():
             for y in range(rect.top, rect.bottom, 4)
         ]
 
-    assert all(pixel == (0, 0, 0, 255) for pixel in lit_samples(muted=False))
-    assert any(pixel != (0, 0, 0, 255) for pixel in lit_samples(muted=True))
+    assert all(
+        pixel == (*PALETTE["paper"], 255) for pixel in lit_samples(muted=False)
+    )
+    assert any(
+        pixel != (*PALETTE["paper"], 255) for pixel in lit_samples(muted=True)
+    )

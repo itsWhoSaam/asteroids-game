@@ -12,7 +12,10 @@ from asteroid import Asteroid
 from constants import (
     ASTEROID_MAX_RADIUS,
     ASTEROID_MIN_RADIUS,
+    PALETTE,
     PARTICLE_LIFETIME_SECONDS,
+    PARTICLE_RADIUS,
+    PARTICLE_SPAWN_POP,
     PLAYER_DEATH_BURST_INTENSITY,
     SHAKE_LARGE_ASTEROID,
     SHAKE_MAX_MAGNITUDE,
@@ -22,7 +25,7 @@ from constants import (
 )
 from game import Game
 from main import handle_collisions
-from particles import Particle, Shake, burst, burst_count
+from particles import Particle, Shake, burst, burst_count, spawn_pop
 from player import Player
 from powerups import PowerUpType
 from shot import Shot
@@ -131,9 +134,9 @@ def test_particle_renders_headless():
     screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
     spark = Particle(640, 360, pygame.Vector2(0, 0))
 
-    screen.fill("black")
+    screen.fill(PALETTE["paper"])
     spark.draw(screen)
-    assert screen.get_at((640, 360)) != (0, 0, 0, 255)
+    assert screen.get_at((640, 360)) != (*PALETTE["paper"], 255)
 
 
 # --- Shake decay and the draw-origin-only constraint --------------------------
@@ -199,10 +202,10 @@ def test_shake_never_changes_any_sprite_position():
     # the main-loop application, verbatim: draw to the world, blit shifted
     screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
     world = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT))
-    world.fill("black")
+    world.fill(PALETTE["paper"])
     for each in drawable:
         each.draw(world)
-    screen.fill("black")
+    screen.fill(PALETTE["paper"])
     screen.blit(world, offset)
 
     for sprite, position in zip(sprites, before):
@@ -282,3 +285,28 @@ def test_shield_absorbed_hit_neither_bursts_nor_shakes(tmp_path):
     assert game.lives == 3  # absorbed
     assert len(particles) == 0
     assert shake.magnitude == 0.0
+
+
+# --- Visual V2: the spawn pop (particles skip the chromatic outline) --------
+
+
+def test_spawn_pop_peaks_at_birth_and_eases_to_base():
+    """The size-pop is a pure multiplier: maximal at birth, easing back to
+    1.0 as life burns — never shrinking the spark below its base size."""
+    assert spawn_pop(1.0) == 1.0 + PARTICLE_SPAWN_POP
+    assert spawn_pop(0.0) == 1.0
+    pops = [spawn_pop(fraction / 10) for fraction in range(1, 11)]
+    assert pops == sorted(pops)  # grows with remaining life
+
+
+def test_fresh_spark_draws_popped_beyond_the_base_radius():
+    """The birth pop is visible on screen: a fresh spark covers pixels the
+    base-radius blob never reached."""
+    pygame.init()
+    screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
+    spark = Particle(640, 360, pygame.Vector2(0, 0))
+
+    screen.fill(PALETTE["paper"])
+    spark.draw(screen)
+
+    assert screen.get_at((640 + PARTICLE_RADIUS + 1, 360)) != (*PALETTE["paper"], 255)
