@@ -57,6 +57,7 @@ def test_powerup_color_resolves_per_kind():
     assert powerup_color(PowerUpType.SHIELD) is PALETTE["powerup_shield"]
     assert powerup_color(PowerUpType.RAPID) is PALETTE["powerup_rapid"]
     assert powerup_color(PowerUpType.TRIPLE) is PALETTE["powerup_triple"]
+    assert powerup_color(PowerUpType.MAGNET) is PALETTE["powerup_magnet"]
 
 
 def test_player_draws_its_hull_in_the_ship_color():
