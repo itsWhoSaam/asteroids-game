@@ -19,6 +19,8 @@ from constants import (
     MINION_CHECKPOINT_FRACTIONS,
     MINION_RADIUS_MULTIPLIER,
     PALETTE,
+    SCREEN_HEIGHT,
+    SCREEN_WIDTH,
 )
 from hud import points_for
 
@@ -43,6 +45,10 @@ class Asteroid(CircleShape):
     # dilate with the field, and expiry restores base speed by the same
     # write (no per-instance undo state to forget).
     speed_scale = 1.0
+
+    # The off-screen cull applies to every rock that isn't a fight's
+    # anchor: subclasses that must not evaporate (the boss) veto it.
+    cullable = True
 
     def __init__(self, x, y, radius):
         super().__init__(x, y, radius)
@@ -109,7 +115,7 @@ class Asteroid(CircleShape):
         # Chrono time dilation rides the frame step: the active scale
         # (1.0 baseline) is the class attribute the main loop publishes.
         self.position += self.velocity * self.speed_scale * dt
-        if self.is_off_screen(ASTEROID_MAX_RADIUS):
+        if self.is_off_screen(ASTEROID_MAX_RADIUS) and self.cullable:
             # Mark the cull before kill(): a rock that drifted off-screen
             # was never destroyed, so the idle diff poll must not mint for it.
             self.despawned = True
@@ -150,6 +156,11 @@ class Boss(Asteroid):
     path.
     """
 
+    # The off-screen cull can't have the boss: a black-hole-dragged boss
+    # slides along the screen edge (see update) instead of ending the wave
+    # for free — no fight, no defeat, no event.
+    cullable = False
+
     def __init__(self, x, y, tier):
         radius = ASTEROID_MIN_RADIUS * BOSS_RADIUS_TIERS[tier]
         super().__init__(x, y, radius)
@@ -182,6 +193,19 @@ class Boss(Asteroid):
             self.checkpoints_hit += 1
             self.spawn_minions()
         return False
+
+    def update(self, dt):
+        super().update(dt)
+        # The cull can't have the boss (cullable = False), so a dragged
+        # boss slides along the screen edge instead of leaving the fight:
+        # black holes still shove it around (danger preserved, escape
+        # denied), and the wave only advances when the boss dies.
+        self.position.x = max(
+            self.radius, min(SCREEN_WIDTH - self.radius, self.position.x)
+        )
+        self.position.y = max(
+            self.radius, min(SCREEN_HEIGHT - self.radius, self.position.y)
+        )
 
     def spawn_minions(self):
         """Two medium asteroids at the boss, kicked outward in random

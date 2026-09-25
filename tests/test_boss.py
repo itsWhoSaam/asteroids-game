@@ -347,3 +347,19 @@ def test_the_boss_never_rolls_for_a_pickup_drop(tmp_path, monkeypatch):
 
     assert not boss.alive()  # the killing blow still landed
     assert len(powerups) == 0
+
+
+def test_update_slides_a_dragged_boss_along_the_edge_instead_of_culling(tmp_path):
+    """A black hole can drag the boss with real momentum (the sim caught an
+    escape at 432 px/s), and the off-screen cull would end a boss wave for
+    free — no fight, no defeat, no event. The boss can't be culled and
+    slides along the edge instead: the wave advances only when it dies."""
+    game, field, player, asteroids, shots, powerups = make_world(tmp_path)
+    boss = Boss(SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2, 1)
+    boss.velocity = pygame.Vector2(-5000, 0)  # a hole's accumulated drag
+
+    for _ in range(30):  # half a second at -5000 px/s crosses any edge
+        boss.update(1 / 60)
+
+    assert boss.alive() and not boss.despawned  # never culled
+    assert boss.position.x >= boss.radius  # clamped just inside the edge
