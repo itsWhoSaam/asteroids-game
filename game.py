@@ -14,6 +14,7 @@ from constants import (
     SHAKE_PLAYER_DEATH,
     VOLUME_STEP,
 )
+from comicfx import BURST_WORD_DEATH, spawn_burst
 from hud import SAVE_PATH, Score
 from logger import log_event
 import sound
@@ -103,6 +104,9 @@ class Game:
         # shake — whether this hit respawns the ship or ends the run. An
         # absorbed (shielded) hit is neither, so it stays silent. The burst
         # is at the death site: respawn() moves the ship right after.
+        # V4: the death word pops first, so it joins fx ahead of the debris
+        # cloud and reads behind it — ZAP!, the player's burst.
+        spawn_burst(self.player.position, self.player.radius, BURST_WORD_DEATH)
         if self.particles is not None:
             burst(self.player.position, self.player.radius,
                   PLAYER_DEATH_BURST_INTENSITY)
