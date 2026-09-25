@@ -311,3 +311,12 @@ VOLUME_MAX = 100
 VOLUME_STEP = 10                   # percent per '[' / ']' press
 VOLUME_DEFAULT = 100               # fresh installs and corrupt saves land here
 HUD_TAG_GAP = 10                   # px between the VOL and MUTED tags top-right
+
+# --- Pause overlay (Tier 1) -------------------------------------------------
+# P or Esc freezes a live run: a paused flag gates every world update and a
+# dim sheet plus the PAUSED prompt render over the frozen frame. Pause is
+# run state — never persisted, and every restart unpauses. The dim blits
+# uniform surface alpha (set_alpha, the WaveBanner fade precedent) because
+# per-pixel alpha breaks the headless dummy drivers.
+PAUSE_OVERLAY_DIM_COLOR = (12, 10, 34)  # deep-void family, over the paper
+PAUSE_OVERLAY_DIM_ALPHA = 160           # 0–255 dim strength over the frame
