@@ -75,6 +75,18 @@ def pull_at(position, player=False):
     return accel
 
 
+def refresh_live_holes(group):
+    """Rebuild the registry from the sprite group — main() calls this once
+    per frame, before the world update (the speed_scale precedent: one
+    class-level write per frame, no per-body wiring).
+
+    Mutates in place so references imported earlier (tests, evidence
+    scripts) stay valid, and group membership is the liveness criterion:
+    a well that despawned — or died in a restart clear — drops out the
+    same frame, so the pull can never outlive its hole."""
+    live_holes[:] = list(group)
+
+
 class BlackHole(CircleShape):
     """A drifting gravity well on its own lifetime clock.
 

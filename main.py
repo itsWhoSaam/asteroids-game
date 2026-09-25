@@ -1,3 +1,4 @@
+import blackhole
 import random
 
 import pygame
@@ -627,6 +628,11 @@ def main():
         # the freeze and the shake decay on real dt so the pause always ends.
         hit_stop.update(dt)
         sim_dt = effective_frame_dt(dt, hit_stop)
+        # Insanity threats: publish this frame's live wells before the world
+        # update — every body's pull consult reads the registry this pass is
+        # about to step. A well spawned later in the frame joins the next
+        # frame's registry; one frame of latency, never a stale pull.
+        blackhole.refresh_live_holes(blackholes)
         updatable.update(sim_dt)
         # player1.update(dt)
 

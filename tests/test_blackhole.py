@@ -16,6 +16,7 @@ from blackhole import (
     accel_at,
     live_holes,
     pull_at,
+    refresh_live_holes,
     spawn_position,
 )
 from constants import (
@@ -118,6 +119,23 @@ def test_the_player_fights_gravity_at_half_strength():
 
 def test_pull_with_no_live_holes_is_zero():
     assert pull_at(pygame.Vector2(400, 300)) == pygame.Vector2(0, 0)
+
+
+def test_refresh_publishes_the_group_into_the_registry(tmp_path):
+    """main's per-frame publish: the registry mirrors the sprite group, so
+    the loop's pull is live — a well bends bodies the frame it exists and
+    stops the frame it is gone. Nothing consults a stale registry."""
+    game, player, asteroids, shots, powerups = make_world(tmp_path)
+    holes = pygame.sprite.Group()
+    BlackHole.containers = (holes,)  # the wiring main() builds
+    hole = BlackHole(300, 360)
+
+    refresh_live_holes(holes)
+    assert pull_at(pygame.Vector2(400, 360)).x < 0  # pulled toward the well
+
+    hole.kill()  # the lifetime expiry, or main's restart clear
+    refresh_live_holes(holes)
+    assert pull_at(pygame.Vector2(400, 360)) == pygame.Vector2(0, 0)
 
 
 def test_shot_update_bends_toward_a_live_hole(tmp_path):
