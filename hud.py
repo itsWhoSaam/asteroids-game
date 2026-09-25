@@ -238,17 +238,22 @@ class WaveBanner:
 
     The house dt-timer pattern — a float decremented every frame, visible
     while positive — with the text alpha fading out over the duration.
+    V4: the text surface renders once per wave, not per frame — only the
+    surface alpha steps with the timer (the surface is this banner's own;
+    no cache entry is ever mutated).
     """
 
     def __init__(self, duration=WAVE_BANNER_SECONDS):
         self.duration = duration
         self.timer = 0.0
         self.wave = 1
+        self._surface = None  # rendered lazily per wave, on the next draw
 
     def show(self, wave):
         """Arm the flash for a wave: 1 at game start/restart, n+1 on advance."""
         self.wave = wave
         self.timer = self.duration
+        self._surface = None  # the wave number changed: re-render on next draw
 
     def update(self, dt):
         if self.timer > 0:
@@ -261,7 +266,8 @@ class WaveBanner:
     def draw(self, screen):
         if not self.visible:
             return
-        surface = game_over_font().render(f"WAVE {self.wave}", True, HUD_COLOR)
-        surface.set_alpha(int(255 * self.timer / self.duration))
-        rect = surface.get_rect(center=(SCREEN_WIDTH / 2, SCREEN_HEIGHT / 3))
-        screen.blit(surface, rect)
+        if self._surface is None:
+            self._surface = game_over_font().render(f"WAVE {self.wave}", True, HUD_COLOR)
+        self._surface.set_alpha(int(255 * self.timer / self.duration))
+        rect = self._surface.get_rect(center=(SCREEN_WIDTH / 2, SCREEN_HEIGHT / 3))
+        screen.blit(self._surface, rect)
