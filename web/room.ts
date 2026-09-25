@@ -47,6 +47,9 @@ export type RoomAudio = Pick<AudioSfx, "play" | "playExplosion" | "setMuted" | "
 
 export interface RoomGameDeps {
   connection: RoomConnection;
+  /** The 4-char room code this client is joined to — surfaced in the HUD
+   * so the creator can share it (spec: "room code shown" on entry). */
+  roomCode: string;
   ctx: CanvasRenderingContext2D;
   background: HTMLCanvasElement;
   save: WebSave;
@@ -60,6 +63,7 @@ export interface RoomInputSource {
 
 export class RoomGame {
   private readonly connection: RoomConnection;
+  private readonly roomCode: string;
   private readonly ctx: CanvasRenderingContext2D;
   private readonly background: HTMLCanvasElement;
   private readonly save: WebSave;
@@ -78,6 +82,7 @@ export class RoomGame {
 
   constructor(deps: RoomGameDeps) {
     this.connection = deps.connection;
+    this.roomCode = deps.roomCode;
     this.ctx = deps.ctx;
     this.background = deps.background;
     this.save = deps.save;
@@ -169,6 +174,7 @@ export class RoomGame {
       credits: snap.economy.credits,
       muted: this.save.muted,
       phase: snap.phase,
+      roomCode: this.roomCode,
     };
     drawHud(this.ctx, hudView);
     drawWaveBanner(this.ctx, this.banner);

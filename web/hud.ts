@@ -35,6 +35,9 @@ export interface HudView {
   credits: number;
   muted: boolean;
   phase: Phase;
+  /** The 4-char room code, shown while connected — the spec's "room code
+   * shown" on entry: the creator needs it to invite the second pilot. */
+  roomCode?: string | null;
 }
 
 /**
@@ -52,6 +55,7 @@ export function hudLines(view: HudView): HudLine[] {
   }
   if (view.wave > 0) lines.push({ text: `Wave: ${view.wave}`, color: HUD_COLOR });
   lines.push({ text: `Credits: ${view.credits}`, color: HUD_COLOR });
+  if (view.roomCode) lines.push({ text: `Room ${view.roomCode}`, color: HUD_COLOR });
   return lines;
 }
 

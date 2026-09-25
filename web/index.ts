@@ -116,6 +116,10 @@ function main(): void {
   const startRoom = (code: string, name: string): void => {
     solo = null;
     connection?.close();
+    // The room code is shown in the HUD (RoomGame) and mirrored into the URL
+    // so the creator can copy a shareable deep link — the spec's "room code
+    // shown" on entry.
+    history.replaceState(null, "", `/?room=${encodeURIComponent(code)}`);
     // Late-bound: the connection's callbacks fire into a game that does
     // not exist until the connection is constructed (its events can
     // arrive as soon as connect() runs).
@@ -137,6 +141,7 @@ function main(): void {
     );
     const started = new RoomGame({
       connection: conn,
+      roomCode: code,
       ctx,
       background,
       save,

@@ -53,6 +53,19 @@ describe("hudLines", () => {
     const lines = hudLines(view({ players: [player("a")], youId: null, wave: 1 }));
     expect(lines.map((line) => line.text)).toEqual(["Wave: 1", "Credits: 0"]);
   });
+
+  it("shows the room code line only while one is set", () => {
+    const withCode = hudLines(view({ players: [player("a")], youId: "a", wave: 1, roomCode: "AB2F" }));
+    expect(withCode.map((line) => line.text)).toEqual([
+      "Score: 0",
+      "Lives: 3",
+      "Wave: 1",
+      "Credits: 0",
+      "Room AB2F",
+    ]);
+    const withoutCode = hudLines(view({ players: [player("a")], youId: "a", wave: 1 }));
+    expect(withoutCode.map((line) => line.text)).toEqual(["Score: 0", "Lives: 3", "Wave: 1", "Credits: 0"]);
+  });
 });
 
 describe("playerRoster", () => {
