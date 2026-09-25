@@ -90,6 +90,9 @@ def build_world():
     burst(pygame.Vector2(1000, 180), 40)
     for spark in list(particles):
         spark.update(0.15)  # spread the clouds a little before the frame
+    for sprite in fx:
+        if isinstance(sprite, Burst):
+            sprite.age = 0.3 * sprite.lifetime  # past the pop-in, full size
 
     shot = Shot(640, 420)
     shot.velocity = pygame.Vector2(0, -400)
