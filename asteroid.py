@@ -11,9 +11,11 @@ from constants import (
     ASTEROID_MIN_RADIUS,
     ASTEROID_SPEED_MAX,
     ASTEROID_SPEED_MIN,
+    BOSS_HIT_FLASH_S,
     BOSS_HP_PER_TIER,
     BOSS_POINTS,
     BOSS_RADIUS_TIERS,
+    BOSS_RING_FRACTIONS,
     BOSS_WAVE_INTERVAL,
     CHIP_CRACK_FRACTIONS,
     CHIP_HEALTH_PER_TIER,
@@ -93,8 +95,9 @@ class Asteroid(CircleShape):
         # Click-chip state (idle core): accumulated click damage, plus the
         # despawn marker the main-loop destruction diff reads to tell a
         # cull (drifted off-screen) from a paid destruction. mintable is
-        # the diff's second guard: bosses die through the same diff but
-        # never mint credits (insanity threats).
+        # the diff's data guard — every body on the field mints unless a
+        # future variant opts out; the boss's death is a paid destruction
+        # like any other (the capstone payoff).
         self.chip_damage = 0.0
         # The crack web's pattern seed: fixed at birth so a drifting rock's
         # cracks stick to its body; deepening reveals more of the same web.
@@ -203,10 +206,13 @@ class Boss(Asteroid):
 
     Shots soak its HP pool instead of splitting it; each checkpoint the
     pool crosses (70/40/15% of max HP) spawns two medium asteroids at the
-    boss — the fight gets harder as it gets safer. It never mints credits,
-    never drops pickups, and never dies to chip clicks; death (shots, the
-    nuke, restart) flows through the ordinary kill() → destruction-diff
-    path.
+    boss — the fight gets harder as it gets safer. A landed shot flashes
+    the hull (the hit feedback) and every landed shot reads as layered
+    armor: the multi-ring look that tells the boss apart from a big rock.
+    It never dies to chip clicks, and its death — shots, the nuke, restart
+    — flows through the ordinary kill() → destruction-diff path, minting
+    credits like any wreck (the capstone payoff); the sweep adds a
+    guaranteed chaos-table drop on top.
     """
 
     # The off-screen cull can't have the boss: a black-hole-dragged boss
@@ -221,9 +227,9 @@ class Boss(Asteroid):
         self.max_hp = tier * BOSS_HP_PER_TIER
         self.hp = self.max_hp
         self.checkpoints_hit = 0
-        # Never a credit wreck: the destruction diff skips non-mintable
-        # bodies, so the boss pays score (BOSS_POINTS × multiplier) only.
-        self.mintable = False
+        # Hit feedback (capstone): a landed shot lights the hull for a
+        # blink — dt-decayed in update, so a pause holds the flash too.
+        self.hit_flash = 0.0
 
     def take_hit(self, hits=1):
         """One player shot's worth of damage; True only when this kills.
@@ -234,6 +240,7 @@ class Boss(Asteroid):
         if not self.alive():
             return False
         self.hp -= hits
+        self.hit_flash = BOSS_HIT_FLASH_S
         log_event("boss_hit", hp=self.hp, max_hp=self.max_hp)
         if self.hp <= 0:
             self.kill()
@@ -259,6 +266,32 @@ class Boss(Asteroid):
         self.position.y = max(
             self.radius, min(SCREEN_HEIGHT - self.radius, self.position.y)
         )
+        if self.hit_flash > 0:
+            self.hit_flash = max(0.0, self.hit_flash - dt)
+
+    def draw(self, screen):
+        # Layered-armor look (capstone): the inked rock base, then two
+        # concentric inner rings in the hostile red that owns the HP bar —
+        # one hue family for everything boss. The flash ring rides the
+        # hull's outside while a landed shot's timer runs. Flat ink draws,
+        # headless-safe (no per-pixel alpha).
+        super().draw(screen)
+        for fraction in BOSS_RING_FRACTIONS:
+            pygame.draw.circle(
+                screen,
+                PALETTE["fringe_r"],
+                self.position,
+                max(1, int(self.radius * fraction)),
+                width=LINE_WIDTH,
+            )
+        if self.hit_flash > 0:
+            pygame.draw.circle(
+                screen,
+                PALETTE["hud_ink"],
+                self.position,
+                self.radius + LINE_WIDTH * 2,
+                width=LINE_WIDTH * 2,
+            )
 
     def spawn_minions(self):
         """Two medium asteroids at the boss, kicked outward in random

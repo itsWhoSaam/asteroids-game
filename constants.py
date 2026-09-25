@@ -769,3 +769,31 @@ DAILY_TAG_ROW = 2               # top-right HUD row: under the audio tags and MA
 # place). Gold reads as the event/score family, apart from the magnet's
 # green and the hostile red.
 PALETTE["daily_gold"] = (243, 195, 66)
+
+
+# --- Boss capstone: payoff and feedback (boss-wave PR) --------------------------
+# The capstone turns the insanity boss from a score-only wall into a fight with
+# a payoff: its death mints through the ordinary destruction diff and always
+# pays one drop from the chaos tables. The flash and armor rings are flat ink
+# draws — no per-pixel alpha, the headless precedent.
+
+# A landed shot lights the hull's flash ring for this long (sim seconds).
+BOSS_HIT_FLASH_S = 0.12
+
+# Concentric inner rings as fractions of the hull radius — the layered-armor
+# look that tells the boss apart from a big rock.
+BOSS_RING_FRACTIONS = (0.66, 0.33)
+
+# Slow drift speed (px/s) at speed_mult 1.0: the difficulty mode's multiplier
+# scales it, so an Easy boss glides and a Hard one stalks.
+BOSS_DRIFT_SPEED = 25.0
+
+
+# --- Drop-rollable pickup hues (boss capstone) -----------------------------------
+# A direct drop draws evenly from all seven buffs, and the guaranteed boss
+# drop rolls that table every fight — PIERCE/HOMING/BOMB shipped without
+# palette keys and crashed powerup_color on their first render. The hues
+# sit apart from the five existing effect colors.
+PALETTE["powerup_pierce"] = (156, 175, 195)  # steel — the shot that drills
+PALETTE["powerup_homing"] = (255, 196, 56)  # amber — the bent-shot beacon
+PALETTE["powerup_bomb"] = (214, 40, 57)  # deep crimson — the field-clear
