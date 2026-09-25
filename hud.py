@@ -19,6 +19,8 @@ from constants import (
     HUD_LINE_STEP,
     HUD_MARGIN,
     HUD_TAG_GAP,
+    PAUSE_OVERLAY_DIM_ALPHA,
+    PAUSE_OVERLAY_DIM_COLOR,
     SCORE_LARGE,
     SCORE_MEDIUM,
     SCORE_SMALL,
@@ -222,6 +224,42 @@ def draw_game_over(screen, score, new_high=False):
         lines.append("New high score!")
     lines.append("press R to restart, Q to quit")
 
+    font = game_over_font()
+    height = len(lines) * GAME_OVER_LINE_STEP
+    top = SCREEN_HEIGHT / 2 - height / 2
+    for row, text in enumerate(lines):
+        surface = font.render(text, True, HUD_COLOR)
+        rect = surface.get_rect(
+            center=(SCREEN_WIDTH / 2, top + (row + 0.5) * GAME_OVER_LINE_STEP)
+        )
+        screen.blit(surface, rect)
+
+
+_pause_dim_cache = None
+
+
+def pause_dim():
+    """The one dark sheet blitted over the frozen frame while paused.
+
+    Uniform surface alpha via set_alpha — the WaveBanner fade precedent —
+    never per-pixel alpha, which breaks headless dummy drivers. Cached
+    once: rebuilding a full-screen surface every frame would be waste.
+    """
+    global _pause_dim_cache
+    if _pause_dim_cache is None:
+        dim = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT))
+        dim.fill(PAUSE_OVERLAY_DIM_COLOR)
+        dim.set_alpha(PAUSE_OVERLAY_DIM_ALPHA)
+        _pause_dim_cache = dim
+    return _pause_dim_cache
+
+
+def draw_pause(screen):
+    """Centered PAUSED overlay over the dimmed frozen frame (Tier 1 pause):
+    the key contract — resume (P) / restart (R) / quit (Q) — is the only
+    UI a paused frame answers (mute and QUIT aside, in the event pump)."""
+    screen.blit(pause_dim(), (0, 0))
+    lines = ["PAUSED", "press P to resume, R to restart, Q to quit"]
     font = game_over_font()
     height = len(lines) * GAME_OVER_LINE_STEP
     top = SCREEN_HEIGHT / 2 - height / 2
