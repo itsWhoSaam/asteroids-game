@@ -29,6 +29,14 @@ from constants import (
     HUD_LINE_STEP,
     HUD_MARGIN,
     HUD_TAG_GAP,
+    LOW_LIVES_PULSE_AMPLITUDE,
+    LOW_LIVES_PULSE_SECONDS,
+    LOW_LIVES_THRESHOLD,
+    LOW_LIVES_VIGNETTE_ALPHA_STEP,
+    LOW_LIVES_VIGNETTE_BANDS,
+    LOW_LIVES_VIGNETTE_BAND_WIDTH,
+    LOW_LIVES_VIGNETTE_COLOR,
+    LOW_LIVES_VIGNETTE_MAX_ALPHA,
     PANEL_PAD_X,
     PANEL_PAD_Y,
     PALETTE,
@@ -240,7 +248,111 @@ def _hud_panel(rows):
     return panel
 
 
-def draw_hud(screen, score, lives=0, wave=0, muted=False, volume=None):
+def low_lives_warning(lives, state):
+    """The warning gate: exactly one life left on a live run (UX wave).
+
+    Count-exact by design — at 2+ lives the line sits at rest, and the
+    game-over screen owns its own overlay, so the warning never draws
+    there even at the same count.
+    """
+    return state == "playing" and lives == LOW_LIVES_THRESHOLD
+
+
+def pulse_scale(phase):
+    """Size factor for the pulsing lives line: 1.0 at rest rising to
+    LOW_LIVES_PULSE_AMPLITUDE at the half-period peak — one full breath
+    per LOW_LIVES_PULSE_SECONDS. Pure, so the draw site just multiplies
+    (the spawn-pop ease shape, sine instead of quadratic)."""
+    breath = 0.5 - 0.5 * math.cos(2 * math.pi * phase / LOW_LIVES_PULSE_SECONDS)
+    return 1.0 + (LOW_LIVES_PULSE_AMPLITUDE - 1.0) * breath
+
+
+def vignette_band_rects(band, width=SCREEN_WIDTH, height=SCREEN_HEIGHT):
+    """The four strip rects of one vignette band, 1-indexed from the edge.
+
+    Bands step inward by LOW_LIVES_VIGNETTE_BAND_WIDTH and tile exactly —
+    no region of the frame is double-darkened. Pure geometry, so the
+    tests can pin disjointness, containment, and edge seating.
+    """
+    step = LOW_LIVES_VIGNETTE_BAND_WIDTH
+    outer = (band - 1) * step
+    inner = band * step
+    return [
+        pygame.Rect(outer, outer, width - 2 * outer, step),           # top
+        pygame.Rect(outer, height - inner, width - 2 * outer, step),  # bottom
+        pygame.Rect(outer, inner, step, height - 2 * inner),          # left
+        pygame.Rect(width - inner, inner, step, height - 2 * inner),  # right
+    ]
+
+
+_vignette_strips_cache = None
+
+
+def vignette_strips():
+    """The vignette as pre-built uniform-alpha strips: [(surface, rect), ...]
+    from the edge inward, strongest at the rim. Built once — per-pixel
+    alpha would break the headless dummy drivers, so each band strip is a
+    plain filled surface blitted with surface alpha (the pause-dim
+    precedent), never a per-pixel-alpha surface."""
+    global _vignette_strips_cache
+    if _vignette_strips_cache is None:
+        strips = []
+        for band in range(1, LOW_LIVES_VIGNETTE_BANDS + 1):
+            alpha = (
+                LOW_LIVES_VIGNETTE_MAX_ALPHA
+                - (band - 1) * LOW_LIVES_VIGNETTE_ALPHA_STEP
+            )
+            for rect in vignette_band_rects(band):
+                surface = pygame.Surface(rect.size)
+                surface.fill(LOW_LIVES_VIGNETTE_COLOR)
+                surface.set_alpha(alpha)
+                strips.append((surface, rect))
+        _vignette_strips_cache = strips
+    return _vignette_strips_cache
+
+
+class LowLivesWarning:
+    """Pulsing lives line + edge vignette while one life remains (UX wave).
+
+    The house dt-timer pattern: the phase accumulates only while the gate
+    is live, so the pulse freezes at rest the moment the run leaves it —
+    respawn to more lives, game over, or a restart. Not persisted and not
+    Game run state: every frame re-derives the gate from lives + state,
+    so both restart hooks clear it for free.
+    """
+
+    def __init__(self):
+        self.active = False
+        self.phase = 0.0
+
+    def update(self, dt, lives, state):
+        """Re-evaluate the gate and age the pulse. Inactive frames reset
+        the phase, so the next engagement breathes up from rest."""
+        self.active = low_lives_warning(lives, state)
+        if self.active:
+            self.phase += dt
+        else:
+            self.phase = 0.0
+
+    @property
+    def pulse(self):
+        """The lives line's size factor this frame, or None while at rest
+        (draw_hud's quiet value)."""
+        if not self.active:
+            return None
+        return pulse_scale(self.phase)
+
+    def draw_vignette(self, screen):
+        """The stepped edge vignette; drawn under the HUD text it must
+        not dim."""
+        if not self.active:
+            return
+        for surface, rect in vignette_strips():
+            screen.blit(surface, rect.topleft)
+
+
+def draw_hud(screen, score, lives=0, wave=0, muted=False, volume=None,
+             lives_pulse=None):
     """Draw the HUD top-left on a yellow halftone panel (visual V5). Score
     always shows; the lives and wave slots stay hidden while zero — F2 and
     F3 feed them.
@@ -251,20 +363,30 @@ def draw_hud(screen, score, lives=0, wave=0, muted=False, volume=None):
     corner, and a VOL N% tag (volume PR) sits beside it — to its left,
     separated by HUD_TAG_GAP — whenever a level is known.
 
+    lives_pulse (low-lives warning): the lives line's pulse size factor
+    (1.0–AMPLITUDE) while exactly one life remains, None at rest — that
+    one line re-renders at the scaled size while the warning is live.
+
     All text renders through the shared comicfx cache: one render per
     distinct (string, color, size), never per frame."""
-    lines = [f"Score: {score}"]
+    lines = [(f"Score: {score}", False)]
     if lives:
-        lines.append(f"Lives: {lives}")
+        lines.append((f"Lives: {lives}", lives_pulse is not None))
     if wave:
-        lines.append(f"Wave: {wave}")
+        lines.append((f"Wave: {wave}", False))
 
     screen.blit(
         _hud_panel(len(lines)),
         (HUD_MARGIN - PANEL_PAD_X, HUD_MARGIN - PANEL_PAD_Y),
     )
-    for row, text in enumerate(lines):
-        surface = cached_text(text, PALETTE["hud_ink"], HUD_FONT_SIZE)
+    for row, (text, pulsing) in enumerate(lines):
+        if pulsing:
+            # The pulse sweeps a small band of sizes per breath — the
+            # (string, color, size) cache absorbs it like any other text.
+            size = max(1, int(round(HUD_FONT_SIZE * lives_pulse)))
+            surface = cached_text(text, PALETTE["hud_ink"], size)
+        else:
+            surface = cached_text(text, PALETTE["hud_ink"], HUD_FONT_SIZE)
         screen.blit(surface, (HUD_MARGIN, HUD_MARGIN + row * HUD_LINE_STEP))
 
     muted_rect = None

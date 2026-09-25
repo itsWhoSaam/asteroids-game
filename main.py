@@ -33,6 +33,7 @@ from economy import Economy
 from drones import DroneBay, OfflineBanner, drone_dps
 from game import Game
 from hud import (
+    LowLivesWarning,
     WaveBanner,
     draw_game_over,
     draw_help,
@@ -185,7 +186,7 @@ def maybe_advance_wave(game, field, banner, player=None, economy=None):
 
 
 def update_world(updatable, drones, asteroids, shots, player1, game, powerups,
-                 shake, field, banner, economy, dt):
+                 shake, field, banner, economy, dt, warning=None):
     """One simulation step: every per-frame update, frozen whole while paused.
 
     The pause flag is the entire gate (Tier 1): a frozen frame ticks nothing
@@ -209,6 +210,12 @@ def update_world(updatable, drones, asteroids, shots, player1, game, powerups,
     maybe_advance_wave(game, field, banner, player1, economy)
     banner.update(dt)
     shake.update(dt)  # F5: decay toward still before the frame is blitted
+
+    # Low-lives warning (UX wave): the gate re-derives from lives + state
+    # every frame — respawn, game over, and restart all leave it with no
+    # dedicated hook, and a frozen run holds its phase with the rest.
+    if warning is not None:
+        warning.update(dt, game.lives, game.state)
 
     # Bought powerups tick on the dt-timer pattern: expire effects,
     # then publish the chrono scale the whole field reads this frame.
@@ -334,7 +341,8 @@ def draw_credits(screen, credits):
     screen.blit(surface, (HUD_MARGIN, HUD_MARGIN + 3 * HUD_LINE_STEP))
 
 
-def render_world(screen, world, background, entities, fx, offset, game):
+def render_world(screen, world, background, entities, fx, offset, game,
+                 warning=None):
     """The V4 composition: three explicit passes into the world, then the
     screen-level steps — the blueprint's pass split, replacing the single
     flat drawable-group draw.
@@ -358,9 +366,15 @@ def render_world(screen, world, background, entities, fx, offset, game):
     screen.fill(PALETTE["paper"])
     screen.blit(world, offset)
     screen.blit(halftone, (0, 0))  # the screen-level print, over the world
+    # Low-lives warning (UX wave): the vignette prints above the halftone
+    # but under the HUD text, so the pulsing line stays crisp while the
+    # edges burn.
+    if warning is not None:
+        warning.draw_vignette(screen)
     draw_hud(screen, game.score, lives=game.lives, wave=game.wave,
              muted=game.muted,  # HUD last, above every world layer
-             volume=getattr(game, "volume", None))
+             volume=getattr(game, "volume", None),
+             lives_pulse=warning.pulse if warning is not None else None)
 
 
 def main():
@@ -410,6 +424,10 @@ def main():
     asteroid_field = AsteroidField(game)
     banner = WaveBanner()
     banner.show(game.wave)
+    # Low-lives warning (UX wave): pulses the HUD lives line and prints the
+    # edge vignette while exactly one life remains. Not run state — it
+    # re-derives its gate from the Game every frame.
+    warning = LowLivesWarning()
 
     economy = Economy()
     shop = Shop(economy, player1)  # applies any save-loaded effect levels
@@ -539,7 +557,8 @@ def main():
         ms = game_clk.tick(60)
         dt = compute_dt(ms)
         update_world(updatable, drones, asteroids, shots, player1, game,
-                     powerups, shake, asteroid_field, banner, economy, dt)
+                     powerups, shake, asteroid_field, banner, economy, dt,
+                     warning)
 
         if not game.paused:
             # Destruction → credits: diff this frame's field against the
@@ -561,7 +580,7 @@ def main():
         # moves, entities don't), the halftone print, HUD last and unshaken
         # so the score stays readable while the world rocks (F5).
         render_world(screen, world, background, entities, fx, shake.offset(),
-                     game)
+                     game, warning)
         draw_credits(screen, economy.credits)
         if not game.paused:
             offline_banner.update(dt)  # a frozen frame fades no UI timers
