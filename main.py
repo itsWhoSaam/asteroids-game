@@ -123,6 +123,7 @@ def maybe_advance_wave(game, field, banner):
     game.wave += 1
     field.start_wave()  # fresh spawn clock and populated guard for the new wave
     banner.show(game.wave)
+    sound.play(sound.SFX_WAVE_CLEAR)  # extra SFX: a rising arpeggio, wave won
     log_event("wave_started", wave=game.wave)
 
 
