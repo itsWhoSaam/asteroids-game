@@ -1,0 +1,167 @@
+/*
+ * Page chrome for the browser client. Game visuals live on the canvas
+ * (drawn from shared/constants PALETTE); these styles cover the page
+ * chrome: letterboxed stage, landing overlay, and the status banner.
+ * Hexes mirror shared/constants.ts PALETTE values.
+ */
+:root {
+  --paper: #17123a;
+  --ink: #fff7e6;
+  --panel: #ffd23f;
+  --ship: #3ee6f0;
+  --fringe: #ff3355;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  overflow: hidden;
+  background: var(--paper);
+  font-family: "Trebuchet MS", "Segoe UI", system-ui, sans-serif;
+  color: var(--ink);
+}
+
+#stage {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+}
+
+.game-canvas {
+  /* 16:9 letterboxed to the window, never cropped. */
+  width: min(100vw, calc(100vh * 16 / 9));
+  height: min(100vh, calc(100vw * 9 / 16));
+  display: block;
+}
+
+/* The landing overlay lives in #app and floats above the stage. While
+   the game runs, #app is empty and must not eat clicks. */
+#app:not(.landing) {
+  display: none;
+}
+
+#app.landing {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+  display: grid;
+  place-items: center;
+  background: rgba(23, 18, 58, 0.85);
+}
+
+.landing-card {
+  background: var(--paper);
+  border: 3px solid var(--ink);
+  box-shadow: 8px 8px 0 var(--fringe);
+  padding: 2rem 2.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  min-width: 340px;
+  max-width: min(90vw, 420px);
+}
+
+.landing-title {
+  font-size: 2.6rem;
+  letter-spacing: 0.18em;
+  margin: 0;
+  color: var(--panel);
+  text-shadow: 3px 3px 0 var(--fringe);
+  text-align: center;
+}
+
+.landing-subtitle {
+  margin: 0 0 0.5rem;
+  font-size: 0.95rem;
+  line-height: 1.5;
+  color: var(--ink);
+  opacity: 0.85;
+}
+
+.landing-row {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.landing-label {
+  font-size: 0.8rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink);
+}
+
+.landing-input {
+  background: #0d0a24;
+  border: 2px solid var(--ink);
+  color: var(--ink);
+  font: inherit;
+  padding: 0.5rem 0.75rem;
+  outline: none;
+}
+
+.landing-input:focus {
+  border-color: var(--panel);
+}
+
+.landing-button {
+  font: inherit;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  padding: 0.65rem 1rem;
+  border: 3px solid var(--ink);
+  background: var(--panel);
+  color: var(--paper);
+  cursor: pointer;
+  box-shadow: 4px 4px 0 var(--fringe);
+  transition: transform 0.05s ease;
+}
+
+.landing-button:hover {
+  transform: translate(-2px, -2px);
+  box-shadow: 6px 6px 0 var(--fringe);
+}
+
+.landing-button:active {
+  transform: translate(2px, 2px);
+  box-shadow: 2px 2px 0 var(--fringe);
+}
+
+.landing-solo {
+  background: var(--ship);
+  color: var(--paper);
+}
+
+/* The connection status banner: reconnecting / dropped / rejected. */
+.status-banner {
+  position: fixed;
+  left: 50%;
+  bottom: 1.5rem;
+  transform: translateX(-50%);
+  z-index: 20;
+  background: var(--panel);
+  color: var(--paper);
+  border: 3px solid var(--ink);
+  box-shadow: 4px 4px 0 var(--fringe);
+  padding: 0.6rem 1.2rem;
+  font-weight: 700;
+  max-width: min(90vw, 560px);
+  text-align: center;
+}
+
+.status-banner[data-severity="error"] {
+  background: var(--fringe);
+  color: var(--ink);
+}
+
+.status-banner[hidden] {
+  display: none;
+}
