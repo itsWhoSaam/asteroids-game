@@ -37,7 +37,7 @@ import random
 
 import pygame
 
-from constants import ASTEROID_MIN_RADIUS, PALETTE
+from constants import ASTEROID_MIN_RADIUS, CHIP_CRACK_FRACTIONS, PALETTE
 
 # Halo budget: the ring-band tripwire (the unshielded band 25–32px from
 # the ship center must stay paper) leaves ~5px of outline room past the
@@ -420,3 +420,59 @@ class Burst(pygame.sprite.Sprite):
         )
         self._text.set_alpha(int(255 * life_fraction))
         surface.blit(self._text, self._text.get_rect(center=self.position))
+
+
+# --- Chip-damage cracks (Tier 2) ---------------------------------------------
+# Idle-clicked rocks crack: an ink web over the hull that deepens with the
+# chip stage. The geometry is pure and deterministic per (radius, seed) —
+# re-seeded on every call, so a drifting rock's cracks stick to its body
+# frame to frame — and the full stage-3 web is generated whole and revealed
+# as a prefix, so deepening shows more of the same web instead of redrawing
+# a new one. Plain draw.lines strokes on the world surface — no surfaces,
+# no alpha, the headless dummy-driver contract.
+
+CRACK_LINES_PER_STAGE = 2    # new ink lines each stage reveals
+CRACK_INNER_FRACTION = 0.2   # cracks start off-center, not at the exact middle
+CRACK_MID_FRACTION = 0.55    # the jag's midpoint radius
+CRACK_REACH_FRACTION = 0.9   # deepest reach, as a fraction of the hull radius
+CRACK_JITTER_DEGREES = 16.0  # per-vertex angular jitter — jagged, not spokes
+CRACK_WIDTHS = (1, 2, 2)     # stroke width by stage: hairline first, ink after
+
+
+def crack_polylines(radius, seed):
+    """Pure crack geometry for a chipped rock: the full stage-3 web of
+    jagged ink polylines, relative to the rock's center. The web a rock
+    grows into is fixed at birth by its seed, and stage n reveals the
+    first n * CRACK_LINES_PER_STAGE polylines of it — the pattern never
+    jumps as the damage deepens, it just gains lines."""
+    rng = random.Random(seed)
+    count = CRACK_LINES_PER_STAGE * len(CHIP_CRACK_FRACTIONS)
+    web = []
+    for i in range(count):
+        heading = i * 360 / count + rng.uniform(-CRACK_JITTER_DEGREES, CRACK_JITTER_DEGREES)
+        mid = heading + rng.uniform(-CRACK_JITTER_DEGREES, CRACK_JITTER_DEGREES)
+        web.append([
+            pygame.Vector2(1, 0).rotate(heading) * radius * CRACK_INNER_FRACTION,
+            pygame.Vector2(1, 0).rotate(mid) * radius * CRACK_MID_FRACTION,
+            pygame.Vector2(1, 0).rotate(heading) * radius * CRACK_REACH_FRACTION,
+        ])
+    return web
+
+
+def draw_cracks(surface, center, radius, stage, seed):
+    """The ink crack web over a chipped rock, deepening with the stage:
+    stage n draws the first n * CRACK_LINES_PER_STAGE polylines of the
+    rock's seeded web, stroked wider as the cracks deepen. Pure ink lines
+    on the opaque world surface — never per-pixel alpha."""
+    if stage <= 0:
+        return
+    stage = min(stage, len(CHIP_CRACK_FRACTIONS))
+    width = CRACK_WIDTHS[min(stage, len(CRACK_WIDTHS)) - 1]
+    for polyline in crack_polylines(radius, seed)[: stage * CRACK_LINES_PER_STAGE]:
+        pygame.draw.lines(
+            surface,
+            INK,
+            False,
+            [(center[0] + point.x, center[1] + point.y) for point in polyline],
+            width,
+        )
