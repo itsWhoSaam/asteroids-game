@@ -225,7 +225,7 @@ class TestMenuAndGameOverLines:
 
     def test_game_over_prompt_offers_the_select_when_a_mode_is_known(self):
         lines = game_over_lines(500, False, "hard")
-        assert lines[-1] == "R restart - 1/2/3 mode (HARD) - Q quit"
+        assert lines[-1] == "R restart - 1/2/3 mode (HARD) - D daily - Q quit"
 
     def test_game_over_prompt_is_unchanged_without_a_mode(self):
         lines = game_over_lines(500, False)

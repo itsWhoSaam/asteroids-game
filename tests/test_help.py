@@ -57,6 +57,7 @@ def test_every_pump_key_in_the_keymap_has_a_live_branch():
         "pygame.K_ESCAPE",  # pause (alias)
         "pygame.K_r",  # restart
         "pygame.K_q",  # quit
+        "pygame.K_d",  # the daily challenge toggle (start / game-over flow)
     ):
         assert key_const in src, f"no live event-pump handler for {key_const}"
     assert "pygame.MOUSEBUTTONDOWN" in src, "no live handler for the Click row"
