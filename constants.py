@@ -393,3 +393,17 @@ LOW_LIVES_VIGNETTE_ALPHA_STEP = 28   # fade per band inward
 # instead of overlapping. Display only — neither kind touches economy math.
 SCORE_COLOR = PALETTE["hud_ink"]  # warm white — reads apart from yellow credits
 SCORE_POPUP_OFFSET_Y = 24.0       # px head start above the credit float's line
+
+# --- Chip-damage cracks (Tier 2) ---------------------------------------------
+# Idle-clicked rocks wear their damage: chip damage maps to a 0-3 crack stage
+# through fractions of the same threshold take_chip kills by, and the draw
+# renders an ink crack web that deepens stage by stage (comicfx.draw_cracks).
+# Fractions, not absolute damage, so every size tier cracks on the same cue.
+# Purely visual — no economy path changes, the destruction diff reads the
+# same split() it always did.
+
+# The damage fraction that deepens the web one stage, in draw order: a rock
+# at a quarter of its chip threshold shows the first hairline pair, and the
+# last stage lands a click or two before the split. Crossing is inclusive
+# (>=): a rock AT the mark shows the next stage.
+CHIP_CRACK_FRACTIONS = (0.25, 0.50, 0.75)
