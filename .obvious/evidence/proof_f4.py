@@ -56,7 +56,7 @@ def render_frame():
 # --- Scenario A: a deterministic drop — a medium rock dies, a pickup appears ---
 Asteroid(400, 360, ASTEROID_MIN_RADIUS * 2)  # medium: eligible to drop
 Shot(400, 360)  # overlapping: destroys it this sweep
-rolls = iter([0.0, 0.5])  # roll 1: drop fires; roll 2: second type (RAPID)
+rolls = iter([0.0, 0.5])  # roll 1: drop fires; roll 2: the buff draw (kind unpinned)
 real_random = random.random
 random.random = lambda: next(rolls)
 try:
@@ -79,4 +79,4 @@ pygame.image.save(screen, f"{OUT}/f4_shield_ring.png")
 print(f"F4 evidence written to {OUT}:")
 for name in ("f4_pickup.png", "f4_shield_ring.png"):
     print(f"  {OUT}/{name}")
-print("Events logged this session: powerup_spawned(rapid), powerup_collected(shield)")
+print("Events logged this session: powerup_spawned(shield), powerup_collected(shield)")

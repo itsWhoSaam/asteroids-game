@@ -8,6 +8,8 @@ restart; score inflation through the diff; a boss wave that double-spawns
 or never advances.
 """
 
+import random
+
 import pygame
 import pytest
 
@@ -24,7 +26,13 @@ from constants import (
 )
 from game import Game
 from hud import WaveBanner
-from main import destroyed_asteroids, maybe_advance_wave, maybe_boss_wave, nuke_field
+from main import (
+    destroyed_asteroids,
+    handle_collisions,
+    maybe_advance_wave,
+    maybe_boss_wave,
+    nuke_field,
+)
 from player import Player
 from shot import Shot
 
@@ -278,3 +286,64 @@ def test_boss_counts_as_the_wave_population(tmp_path):
     maybe_advance_wave(game, field, WaveBanner())
 
     assert game.wave == 6
+
+
+# --- The boss through the collision sweep (chaos-pickups corrections) --------
+
+
+def test_player_shots_soak_the_boss_pool_through_the_sweep(tmp_path):
+    """A player shot landing on the boss drains exactly one HP through the
+    sweep — no split, no kill, no score — the hull, not a rock."""
+    game, field, player, asteroids, shots, powerups = make_world(tmp_path)
+    game.wave = 5
+    field.start_wave()
+    maybe_boss_wave(game, field)
+    boss = list(asteroids)[0]
+    hp_before = boss.hp
+    Shot(boss.position.x, boss.position.y)
+
+    handle_collisions(asteroids, shots, player, game, powerups)
+
+    assert boss.alive()
+    assert boss.hp == hp_before - 1
+    assert game.score == 0
+
+
+def test_the_killing_blow_through_the_sweep_pays_boss_points(tmp_path):
+    """The shot that empties the pool kills the boss through the ordinary
+    destruction paths and pays BOSS_POINTS via register_kill."""
+    game, field, player, asteroids, shots, powerups = make_world(tmp_path)
+    game.wave = 5
+    field.start_wave()
+    maybe_boss_wave(game, field)
+    boss = list(asteroids)[0]
+    boss.hp = 1  # one shot from death
+    Shot(boss.position.x, boss.position.y)
+
+    handle_collisions(asteroids, shots, player, game, powerups)
+
+    assert not boss.alive()
+    assert game.score == BOSS_POINTS
+
+
+def test_the_boss_never_rolls_for_a_pickup_drop(tmp_path, monkeypatch):
+    """The drop-roll guard sits before the roll: sweeping a dying boss must
+    never even draw a random number — a boss dropping a violet ? would be
+    an economy leak wearing a mystery costume."""
+    game, field, player, asteroids, shots, powerups = make_world(tmp_path)
+    game.wave = 5
+    field.start_wave()
+    maybe_boss_wave(game, field)
+    boss = list(asteroids)[0]
+    boss.hp = 1
+    Shot(boss.position.x, boss.position.y)
+
+    def forbidden_roll():
+        raise AssertionError("the boss reached the pickup drop roll")
+
+    monkeypatch.setattr(random, "random", forbidden_roll)
+
+    handle_collisions(asteroids, shots, player, game, powerups)
+
+    assert not boss.alive()  # the killing blow still landed
+    assert len(powerups) == 0

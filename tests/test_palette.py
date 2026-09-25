@@ -57,6 +57,8 @@ def test_powerup_color_resolves_per_kind():
     assert powerup_color(PowerUpType.SHIELD) is PALETTE["powerup_shield"]
     assert powerup_color(PowerUpType.RAPID) is PALETTE["powerup_rapid"]
     assert powerup_color(PowerUpType.TRIPLE) is PALETTE["powerup_triple"]
+    # the ? wildcard's violet is a palette alias, not a second color source
+    assert powerup_color(PowerUpType.MYSTERY) is PALETTE["powerup_mystery"]
 
 
 def test_player_draws_its_hull_in_the_ship_color():

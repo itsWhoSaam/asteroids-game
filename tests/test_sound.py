@@ -18,6 +18,7 @@ from constants import (
     PALETTE,
     SFX_CHANNELS,
     SFX_COMBO_BREAK,
+    SFX_CURSE,
     SFX_DASH,
     SFX_EXPLOSION_LARGE,
     SFX_EXPLOSION_MEDIUM,
@@ -86,6 +87,7 @@ def test_init_builds_every_named_cue():
         SFX_SAUCER,
         SFX_BOSS,
         SFX_BLACKHOLE,
+        SFX_CURSE,
     }
     sound.init()  # idempotent: a second call must not rebuild or crash
     assert set(sound._sounds)  # still populated

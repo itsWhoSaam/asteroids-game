@@ -20,9 +20,11 @@ from constants import (
     PALETTE,
     POWERUPS,
     POWERUP_ACTIVE_COLOR,
+    SFX_CURSE,
     SFX_POWERUP,
     SCREEN_WIDTH,
     SCREEN_HEIGHT,
+    SHAKE_BOMB,
     SHAKE_LARGE_ASTEROID,
     SHOP_BRIGHT_COLOR,
 )
@@ -42,7 +44,14 @@ from hud import (
 from logger import log_state, log_event
 from particles import Particle, Shake, burst
 from player import Player
-from powerups import PowerUp, drops_powerup, pick_type
+from powerups import (
+    CURSE_TYPES,
+    PowerUp,
+    PowerUpType,
+    drops_powerup,
+    drop_type,
+    mystery_pick_type,
+)
 from saucer import (
     Saucer,
     SaucerScheduler,
@@ -146,22 +155,37 @@ def handle_collisions(asteroids, shots, player1, game, powerups, shake=None,
                     shake.kick(
                         SHAKE_LARGE_ASTEROID * asteroid.radius / ASTEROID_MAX_RADIUS
                     )
-                asteroid.split()
-                shot.kill()
-                # Insanity core: shot kills (player OR drone — drones fire
-                # real shots into this same group) advance the combo chain
-                # and pay points × its multiplier. Chip clicks and nukes
-                # never route here: credits-only, combo-free.
-                game.register_kill(asteroid.kill_points)
-                shot_kills += 1
-                # A destroyed non-small rock occasionally pays a pickup (F4).
-                # The pure rolls keep the decision testable; the new PowerUp
-                # joins its containers like every other sprite.
-                if drops_powerup(asteroid.radius, random.random()):
-                    kind = pick_type(random.random())
-                    PowerUp(asteroid.position.x, asteroid.position.y, kind)
-                    log_event("powerup_spawned", powerup_type=kind.value)
-                break  # the hit killed the asteroid; skip its remaining shots
+                # Every shot routes through the take_hit seam (the Boss
+                # overrides it into its HP pool) — the sweep never calls
+                # split() directly; plain rocks die exactly as before.
+                destroyed = asteroid.take_hit()
+                # Insanity chaos: PIERCE — the shot drills through plain
+                # rocks and stays live for the next one. The boss's hull is
+                # too thick to drill: a piercing shot dies on it like any
+                # other, so a pass can't melt the whole pool per frame.
+                drills_rocks = player1.has_pierce and not isinstance(asteroid, Boss)
+                if not drills_rocks:
+                    shot.kill()
+                if destroyed:
+                    # Insanity core: shot kills (player OR drone — drones fire
+                    # real shots into this same group) advance the combo chain
+                    # and pay points × its multiplier. Chip clicks and nukes
+                    # never route here: credits-only, combo-free.
+                    game.register_kill(asteroid.kill_points)
+                    shot_kills += 1
+                    # A destroyed non-small rock occasionally pays a pickup
+                    # (F4); bosses never do (insanity threats) — and the
+                    # guard reads before the roll, so a boss death draws no
+                    # random number at all. drop_type (insanity chaos) rolls
+                    # 40% of drops into the ? wildcard; its contents stay
+                    # unknown until collected.
+                    if not isinstance(asteroid, Boss) and drops_powerup(
+                        asteroid.radius, random.random()
+                    ):
+                        kind = drop_type(random.random())
+                        PowerUp(asteroid.position.x, asteroid.position.y, kind)
+                        log_event("powerup_spawned", powerup_type=kind.value)
+                break  # the hit is spent on this rock; skip its remaining shots
 
     # Insanity core: the frame's shot kills buy a freeze — one rock is a
     # base beat, several dying in one sweep is the multi beat.
@@ -231,9 +255,21 @@ def handle_collisions(asteroids, shots, player1, game, powerups, shake=None,
                 continue
             if powerup.collides_with(player1):
                 powerup.kill()
-                player1.activate_powerup(powerup.kind)
-                log_event("powerup_collected", powerup_type=powerup.kind.value)
-                sound.play(sound.SFX_POWERUP)  # F6: the pickup jingle
+                kind = powerup.kind
+                # Insanity chaos: a ? pickup's contents roll on collect —
+                # the drop only ever promised a gamble.
+                if kind is PowerUpType.MYSTERY:
+                    log_event("mystery_collected")
+                    kind = mystery_pick_type(random.random())
+                if kind in CURSE_TYPES:
+                    # The sting gets its own event and its own sound — the
+                    # pickup jingle would be a lie about what just happened.
+                    log_event("curse_revealed", curse=kind.value)
+                    sound.play(SFX_CURSE)
+                else:
+                    log_event("powerup_collected", powerup_type=kind.value)
+                    sound.play(sound.SFX_POWERUP)  # F6: the pickup jingle
+                player1.activate_powerup(kind)
 
 
 def maybe_advance_wave(game, field, banner):
@@ -334,6 +370,17 @@ def nuke_field(asteroids):
         for rock in list(asteroids):
             burst(rock.position, rock.radius)
             rock.split()
+
+
+def bomb_clear(hit_stop, shake, asteroids):
+    """The bomb pickup's field clear (insanity chaos): the bought nuke's
+    exact path — the whole field dies through the ordinary destruction
+    diff (combo-free, credit-paying), the multi beat freezes the frame,
+    and the screen rocks. Module-level so tests pin it without main()."""
+    freeze_for_destructions(hit_stop, len(asteroids))
+    nuke_field(asteroids)
+    if shake is not None:
+        shake.kick(SHAKE_BOMB)
 
 
 _float_font_cache = None
@@ -438,6 +485,9 @@ def main():
     # (they schedule world events; they are not run state).
     saucer_clock = SaucerScheduler()
     hole_clock = BlackHoleScheduler()
+    # Bomb pickup (insanity chaos): the ship never owns the world, so the
+    # field-clear callback is injected here — the bought nuke's exact path.
+    player1.bomb_field = lambda: bomb_clear(hit_stop, shake, asteroids)
     game = Game(player1, asteroids, shots, powerups, particles=particles, shake=shake)
     # F6: start from the persisted mute preference — the sound module only
     # learns it here; playback stays suppressed either way.
@@ -614,6 +664,10 @@ def main():
         # then publish the chrono scale the whole field reads this frame.
         economy.tick_powerups(sim_dt)
         Asteroid.speed_scale = economy.chrono_scale()
+        # Insanity chaos: while the HOMING pickup runs, every friendly shot
+        # steers — the speed_scale precedent: one class-level write per
+        # frame, no per-shot wiring. None re-arms straight flight.
+        Shot.homing_targets = asteroids if player1.has_homing else None
 
         # Destruction → credits: diff this frame's field against the last,
         # mint once per wreck, float a '+N' over the wreck. Bosses route
