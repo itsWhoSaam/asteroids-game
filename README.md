@@ -30,9 +30,10 @@ game-over screen.
 | Mouse click | Chip the rock under the cursor — the clicker verb |
 | `1`–`4` | Buy shop upgrades: Nanoblade, Fire-rate, Income, Drones |
 | `7`–`0` | Fire bought powerups: Gold Rush, Nuke, Overdrive, Chrono |
-| `R` | Restart (at game over) |
-| `Q` | Quit (at game over) |
-| `M` | Mute/unmute (persisted) |
+| `R` | Restart (at game over, or from the pause overlay) |
+| `Q` | Quit (at game over, or from the pause overlay) |
+| `P`/`Esc` | Pause/resume the run — the world freezes under a dimmed PAUSED overlay |
+| `M` | Mute/unmute (persisted, works while paused) |
 
 ## The idle loop
 
