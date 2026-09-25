@@ -1,7 +1,7 @@
 import random
 
 import pygame
-from asteroid import Asteroid
+from asteroid import Asteroid, boss_tier
 from constants import (
     ASTEROID_KINDS,
     ASTEROID_MAX_RADIUS,
@@ -9,6 +9,7 @@ from constants import (
     ASTEROID_SPAWN_RATE_SECONDS,
     ASTEROID_SPEED_MAX,
     ASTEROID_SPEED_MIN,
+    BOSS_WAVE_INTERVAL,
     SCREEN_HEIGHT,
     SCREEN_WIDTH,
     WAVE_SPAWN_DECAY,
@@ -24,7 +25,20 @@ def wave_params(wave):
     The spawn cadence tightens x0.9 per wave down to its floor; the asteroid
     speed band climbs from its wave-1 base. Kept as a plain dict — the
     spec's key interface for this feature.
+
+    Boss waves (insanity threats): every BOSS_WAVE_INTERVAL-th wave returns
+    the boss dict instead — the boss IS the wave's population, so the field
+    spawns nothing. The zero cadence/speeds are inert filler keeping the
+    dict shape uniform for callers that read all keys.
     """
+    if wave % BOSS_WAVE_INTERVAL == 0:
+        return {
+            "boss": True,
+            "tier": boss_tier(wave),
+            "spawn_interval": 0.0,
+            "speed_min": 0,
+            "speed_max": 0,
+        }
     return {
         "spawn_interval": max(
             WAVE_SPAWN_INTERVAL_FLOOR,
@@ -84,6 +98,10 @@ class AsteroidField(pygame.sprite.Sprite):
     def update(self, dt):
         # Cadence and speed band come from the wave the game is on (F3).
         params = wave_params(self.game.wave)
+        if params.get("boss"):
+            # Boss wave (insanity threats): the field spawns nothing — the
+            # boss is the wave's population, spawned by main's scheduler.
+            return
         self.spawn_timer += dt
         if self.spawn_timer > params["spawn_interval"]:
             self.spawn_timer = 0

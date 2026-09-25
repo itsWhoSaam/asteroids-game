@@ -85,19 +85,55 @@ def test_wave_params_tightens_interval_and_shifts_speed_band():
 
 
 def test_wave_params_interval_floors_at_three_tenths():
-    # 0.8 * 0.9**9 ≈ 0.310 — still above the floor; 0.8 * 0.9**10 ≈ 0.279 is
-    # the first wave clamped to it, and every wave after stays there.
-    assert wave_params(10)["spawn_interval"] == pytest.approx(0.8 * 0.9**9)
-    assert wave_params(10)["spawn_interval"] > WAVE_SPAWN_INTERVAL_FLOOR
+    # 0.8 * 0.9**8 ≈ 0.344 — still above the floor; 0.8 * 0.9**10 ≈ 0.279 is
+    # the first wave clamped to it (wave 11), and every wave after stays
+    # there. Boss waves (5, 10, 15…) return the boss dict instead — the
+    # field has no cadence on those waves at all (insanity threats).
+    assert wave_params(9)["spawn_interval"] == pytest.approx(0.8 * 0.9**8)
+    assert wave_params(9)["spawn_interval"] > WAVE_SPAWN_INTERVAL_FLOOR
     assert wave_params(11)["spawn_interval"] == WAVE_SPAWN_INTERVAL_FLOOR
-    assert wave_params(50)["spawn_interval"] == WAVE_SPAWN_INTERVAL_FLOOR
+    assert wave_params(12)["spawn_interval"] == WAVE_SPAWN_INTERVAL_FLOOR
+    assert wave_params(14)["spawn_interval"] == WAVE_SPAWN_INTERVAL_FLOOR
 
 
 def test_wave_params_speed_band_stays_valid_ever_after():
-    """speed_max must stay above speed_min or random.randint raises."""
+    """speed_max must stay above speed_min or random.randint raises.
+
+    Boss waves are exempt: their zero band is inert filler the field never
+    reads (the field spawns nothing on a boss wave).
+    """
     for wave in range(1, 60):
         params = wave_params(wave)
+        if params.get("boss"):
+            continue
         assert params["speed_min"] < params["speed_max"]
+
+
+# --- boss waves (insanity threats): the pure boss dict ---
+
+
+def test_wave_params_boss_wave_returns_the_boss_dict():
+    """Every fifth wave: the boss flag, the tier, and inert zeros the field
+    never reads (it spawns nothing on a boss wave)."""
+    assert wave_params(5) == {
+        "boss": True,
+        "tier": 1,
+        "spawn_interval": 0.0,
+        "speed_min": 0,
+        "speed_max": 0,
+    }
+
+
+def test_wave_params_boss_tiers_climb_then_cap():
+    assert wave_params(10)["tier"] == 2
+    assert wave_params(15)["tier"] == 3
+    assert wave_params(20)["tier"] == 3  # capped at the largest radius tier
+    assert wave_params(50)["tier"] == 3
+
+
+def test_non_boss_waves_carry_no_boss_key():
+    for wave in (1, 2, 3, 4, 6, 9, 11):
+        assert "boss" not in wave_params(wave)
 
 
 # --- the guarded advance (main.maybe_advance_wave) ---
@@ -235,6 +271,19 @@ def test_field_spawn_cadence_uses_the_wave_interval(tmp_path):
 
     field.update(0.3)  # timer 0.8 > 0.72: the spawn fires
     assert len(asteroids) == 1
+
+
+def test_field_spawns_nothing_during_a_boss_wave(tmp_path):
+    """Boss wave: the boss is the wave's population — the field stands down
+    no matter how long the clock runs (insanity threats)."""
+    pygame.init()
+    game, field, asteroids, *_ = make_world(tmp_path)
+    game.wave = 5
+
+    field.update(10.0)  # far past any interval
+
+    assert len(asteroids) == 0
+    assert field.spawned_this_wave == 0
 
 
 # --- the WAVE n banner ---
