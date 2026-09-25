@@ -48,6 +48,11 @@ class Game:
         # Tier 1 pause: True while P/Esc has frozen a live run. Never
         # persisted, and only ever set inside "playing" — see toggle_pause.
         self.paused = False
+        # Tier 1 help: True while the keybind list is up over dimmed play.
+        # UI state like pause — never persisted, toggled only in "playing"
+        # (see toggle_help), and cleared by game over and restart so a stale
+        # list never covers another screen's prompt.
+        self.help_open = False
 
     @property
     def score(self):
@@ -78,6 +83,19 @@ class Game:
             return False
         self.paused = not self.paused
         log_event("paused" if self.paused else "resumed")
+        return True
+
+    def toggle_help(self):
+        """Flip the help overlay on a live run only; True when it flipped.
+
+        Same gate as toggle_pause: the game-over screen owns its R/Q prompt
+        and a fresh run starts clean — restart()/game_over() clear the flag.
+        Unlike pause, help freezes nothing (the run continues under the
+        dimmed list), so this touches no simulation state and logs no run
+        event — the list is documentation, not a world change."""
+        if self.state != "playing":
+            return False
+        self.help_open = not self.help_open
         return True
 
     @property
@@ -143,8 +161,10 @@ class Game:
         self.state = "game_over"
         # Frozen worlds resolve no hits, so a pause can't coexist with game
         # over — clearing keeps that invariant structural: the game-over
-        # screen is never dimmed by a stale pause flag.
+        # screen is never dimmed by a stale pause flag. A stale help list
+        # would cover the R/Q prompt the same way, so it closes here too.
         self.paused = False
+        self.help_open = False
         log_event("game_over", score=self.score, high_score=self.high_score)
         sound.play(sound.SFX_GAME_OVER)  # F6: the run winding down
 
@@ -155,8 +175,9 @@ class Game:
         self.wave = 1
         self.state = "playing"
         # Both restart hooks land here (game-over R and the pause overlay's
-        # R): a fresh run is always live and unpaused.
+        # R): a fresh run is always live, unpaused, and help-free.
         self.paused = False
+        self.help_open = False
         # kill() detaches each sprite from ALL its groups (asteroids are also
         # in updatable/drawable) — emptying one group would leave zombie rocks
         # drifting and rendering, unshootable.

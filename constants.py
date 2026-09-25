@@ -355,3 +355,15 @@ SFX_WAVE_CLEAR_VOLUME = 0.45
 MILESTONE_WAVE_INTERVAL = 5
 MILESTONE_SHIELD_CHARGES = 1
 MILESTONE_CREDIT_BONUS = 500.0
+
+# --- Help overlay (Tier 1) ---------------------------------------------------
+# H toggles a keybind-list overlay over dimmed play; H again dismisses it. The
+# dim reuses the pause overlay's sheet (PAUSE_OVERLAY_DIM_* above) — one dim
+# treatment, two overlays. The rows are data: hud.help_keymap() renders shop
+# and powerup entries straight from the tables the handlers read, and the test
+# suite pins every listed key to a live handler, so the list cannot drift
+# from what the game actually answers. Help dims, it never freezes — pause is
+# the freeze, and the two overlays stack when both are open.
+HELP_FONT_SIZE = 24               # dense list font, between HUD and game-over
+HELP_LINE_STEP = 30               # px between help rows
+HELP_TITLE_STEP = 56              # px between the title and the first row

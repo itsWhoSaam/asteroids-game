@@ -22,6 +22,9 @@ from constants import (
     BANNER_ALPHA_STEPS,
     GAME_OVER_FONT_SIZE,
     GAME_OVER_LINE_STEP,
+    HELP_FONT_SIZE,
+    HELP_LINE_STEP,
+    HELP_TITLE_STEP,
     HUD_FONT_SIZE,
     HUD_LINE_STEP,
     HUD_MARGIN,
@@ -31,6 +34,7 @@ from constants import (
     PALETTE,
     PAUSE_OVERLAY_DIM_ALPHA,
     PAUSE_OVERLAY_DIM_COLOR,
+    POWERUPS,
     SCORE_LARGE,
     SCORE_MEDIUM,
     SCORE_SMALL,
@@ -41,6 +45,7 @@ from constants import (
     WAVE_BANNER_TILT_DEGREES,
 )
 from logger import log_event
+from shop import UPGRADES
 
 SAVE_PATH = "game_save.json"
 
@@ -333,7 +338,8 @@ _pause_dim_cache = None
 
 
 def pause_dim():
-    """The one dark sheet blitted over the frozen frame while paused.
+    """The one dark sheet blitted over the frame by every dimmed overlay —
+    pause (Tier 1) and the help list (Tier 1) share the treatment.
 
     Uniform surface alpha via set_alpha — the WaveBanner fade precedent —
     never per-pixel alpha, which breaks headless dummy drivers. Cached
@@ -379,6 +385,78 @@ def wave_banner_text(wave, milestone_credits=None):
     if milestone_credits is None:
         return f"WAVE {wave}"
     return f"MILESTONE WAVE {wave} - SHIELD +{int(milestone_credits)} CR"
+
+
+def help_font():
+    """The dense-list font for the help overlay's keybind rows — the
+    shared bold comicfx font (visual V5), so the rows measure the same
+    glyphs the cache renders."""
+    return shared_font(HELP_FONT_SIZE)
+
+
+def help_keymap():
+    """The help overlay's rows, as (group, keys, action) tuples.
+
+    The shop and bought-powerup rows derive from the very tables the
+    handlers read — shop.UPGRADES and constants.POWERUPS, the same
+    table-driven shape the panel and the pump use — so a rebalance there
+    re-renders here and the two can never disagree. The remaining rows are
+    the hand-wired event-pump and polled keys, pinned to their live
+    handlers by tests/test_help.py.
+    """
+    rows = [
+        ("Ship", "W A S D", "thrust and rotate"),
+        ("Ship", "Space", "shoot"),
+        ("Ship", "Click", "chip the rock under the cursor"),
+    ]
+    for defn in UPGRADES:
+        rows.append(("Shop", defn.key_label, f"{defn.title}: {defn.effect}"))
+    for defn in POWERUPS.values():
+        rows.append(
+            ("Powerup", chr(defn["key"]), f"{defn['title']}: {defn['desc']}")
+        )
+    rows += [
+        ("Audio", "M", "mute / unmute (persisted)"),
+        ("Audio", "[ ]", "volume down / up"),
+        ("Game", "P / Esc", "pause / resume"),
+        ("Game", "H", "toggle this help"),
+        ("Game over", "R / Q", "restart / quit"),
+    ]
+    return rows
+
+
+def draw_help(screen):
+    """Centered keybind list over dimmed play (Tier 1 help): H toggles it.
+
+    The rows render from help_keymap() — the same table the tests pin to
+    the live handlers — so the list is exactly what the game answers. The
+    dim reuses the pause overlay's sheet: same treatment, one cache.
+    """
+    screen.blit(pause_dim(), (0, 0))
+    rows = help_keymap()
+    font = help_font()
+    block_height = HELP_TITLE_STEP + len(rows) * HELP_LINE_STEP
+    top = (SCREEN_HEIGHT - block_height) / 2
+    title = cached_text("CONTROLS — press H to close", PALETTE["hud_ink"], GAME_OVER_FONT_SIZE)
+    screen.blit(
+        title, title.get_rect(center=(SCREEN_WIDTH / 2, top + HELP_TITLE_STEP / 2))
+    )
+    for row, (group, keys, action) in enumerate(rows):
+        y = top + HELP_TITLE_STEP + row * HELP_LINE_STEP
+        # Two columns around center: the key right-aligned, its action
+        # left-aligned — a table that stays centered whatever the rows say.
+        key_surface = cached_text(keys, PALETTE["hud_ink"], HELP_FONT_SIZE)
+        screen.blit(
+            key_surface,
+            key_surface.get_rect(midright=(SCREEN_WIDTH / 2 - 24, y)),
+        )
+        action_surface = cached_text(
+            f"{group}: {action}", PALETTE["hud_ink"], HELP_FONT_SIZE
+        )
+        screen.blit(
+            action_surface,
+            action_surface.get_rect(midleft=(SCREEN_WIDTH / 2 + 24, y)),
+        )
 
 
 class WaveBanner:

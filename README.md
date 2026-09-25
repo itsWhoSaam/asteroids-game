@@ -33,6 +33,7 @@ game-over screen.
 | `R` | Restart (at game over, or from the pause overlay) |
 | `Q` | Quit (at game over, or from the pause overlay) |
 | `P`/`Esc` | Pause/resume the run — the world freezes under a dimmed PAUSED overlay |
+| `H` | Toggle the controls overlay — every key listed over dimmed play |
 | `M` | Mute/unmute (persisted, works while paused) |
 
 ## The idle loop
