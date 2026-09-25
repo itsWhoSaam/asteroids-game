@@ -23,6 +23,8 @@ from constants import (
     SFX_POWERUP,
     SCREEN_WIDTH,
     SCREEN_HEIGHT,
+    SCORE_COLOR,
+    SCORE_POPUP_OFFSET_Y,
     SHAKE_LARGE_ASTEROID,
     SHOP_BRIGHT_COLOR,
 )
@@ -98,7 +100,20 @@ def handle_collisions(asteroids, shots, player1, game, powerups, shake=None):
                     )
                 asteroid.split()
                 shot.kill()
-                game.add_score(points_for(asteroid.radius))
+                points = points_for(asteroid.radius)
+                game.add_score(points)
+                # Distinct score popups: the points award floats as its own
+                # white '+N pts' at the kill site — display only, it touches
+                # neither the score nor the ledger. It starts a head above
+                # the credit float the destruction diff pays this same frame.
+                style = popup_style("points", points)
+                FloatingText(
+                    asteroid.position.x,
+                    asteroid.position.y - SCORE_POPUP_OFFSET_Y,
+                    points,
+                    label=style.label,
+                    color=style.color,
+                )
                 # A destroyed non-small rock occasionally pays a pickup (F4).
                 # The pure rolls keep the decision testable; the new PowerUp
                 # joins its containers like every other sprite.
@@ -300,6 +315,26 @@ def float_label(amount):
     return f"+{int(amount)}"
 
 
+class PopupStyle(NamedTuple):
+    """The resolved look of one floating-popup kind (distinct score popups)."""
+
+    label: str
+    color: tuple
+
+
+def popup_style(kind, amount):
+    """Label + color for a floating popup, by kind.
+
+    Pure (distinct score popups): both kinds share the FloatingText
+    dt-timer template but never a look — points announce '+N pts' in the
+    palette's warm white, credits keep their yellow '+N'. One resolver, so
+    the two kinds cannot drift into each other.
+    """
+    if kind == "points":
+        return PopupStyle(f"+{int(amount)} pts", SCORE_COLOR)
+    return PopupStyle(float_label(amount), FLOAT_COLOR)
+
+
 def click_damage(shop, economy):
     """Chip damage per click: the constant base scaled by Nanoblade
     levels — and ×10 while Overdrive runs (insane powerups). Shots
@@ -308,10 +343,13 @@ def click_damage(shop, economy):
 
 
 class FloatingText(pygame.sprite.Sprite):
-    """A '+N' credit number rising from a fresh wreck (idle core).
+    """A small text line rising from a point and fading on the dt-timer.
 
-    Lifetime runs on the dt-timer pattern — no wall-clock calls, so
-    headless runs and tests step it deterministically.
+    The idle core's '+N' credit float is the original; the distinct-score-
+    popups wave made this the shared template — points and credits (and the
+    shop/powerup notices) all ride it with their own resolved look. Lifetime
+    runs on the dt-timer pattern — no wall-clock calls, so headless runs and
+    tests step it deterministically.
     """
 
     containers = ()
@@ -322,7 +360,11 @@ class FloatingText(pygame.sprite.Sprite):
         else:
             super().__init__()
         self.position = pygame.Vector2(x, y)
-        self.surface = float_font().render(label or float_label(amount), True, color)
+        # The resolved look rides the sprite so tests and evidence scripts
+        # can tell which kind a float is without OCR-ing the surface.
+        self.label = label or float_label(amount)
+        self.color = color
+        self.surface = float_font().render(self.label, True, color)
         self.lifetime = FLOAT_LIFETIME_SECONDS
 
     def update(self, dt):
@@ -567,7 +609,14 @@ def main():
             for wreck in destroyed_asteroids(prev_asteroids, asteroids):
                 payout = economy.mint(wreck.radius)
                 log_event("credit_minted", amount=payout)
-                FloatingText(wreck.position.x, wreck.position.y, payout)
+                style = popup_style("credits", payout)
+                FloatingText(
+                    wreck.position.x,
+                    wreck.position.y,
+                    payout,
+                    label=style.label,
+                    color=style.color,
+                )
             prev_asteroids = set(asteroids)
 
             autosave_timer += dt
