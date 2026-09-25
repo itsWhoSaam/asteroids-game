@@ -66,7 +66,9 @@ from powerups import (
     PowerUpType,
     drops_powerup,
     drop_type,
+    magnet_pull,
     mystery_pick_type,
+    pick_type,
 )
 from saucer import (
     Saucer,
@@ -382,10 +384,44 @@ def maybe_advance_wave(game, field, banner, player=None, economy=None):
         )
 
 
+def magnet_pullables(powerups, floaters):
+    """Every body the magnet can bend this frame: all drifting pickups plus
+    the credit floats — the only floats flagged magnetic. Pure selection,
+    so the pull's reach is pinned by tests.
+
+    Points popups and shop/powerup notices hold their line: they are not
+    things the ship collects, and dragging the shop's own labels around
+    would read as a bug, not a feature.
+    """
+    pullables = list(powerups)
+    pullables += [floater for floater in floaters or () if floater.magnetic]
+    return pullables
+
+
+def apply_magnet(game, player, dt, pullables):
+    """The MAGNET drop's per-frame pass (Tier 3): while its clock runs on a
+    live run, bend every nearby pullable's velocity toward the ship.
+
+    Force, not teleport — magnet_pull accelerates each body (speed-capped,
+    eased by distance) and the body's own update integrates the result; a
+    body the magnet releases keeps the speed it gained. Playing-only: a
+    dead run collects nothing, so it magnetizes nothing either.
+    """
+    if game.state != "playing" or not player.has_magnet:
+        return
+    for pullable in pullables:
+        pullable.velocity = magnet_pull(
+            pullable.position,
+            player.position,
+            pullable.velocity,
+        )
+
+
 def update_world(updatable, drones, asteroids, shots, player1, game, powerups,
                  shake, field, banner, economy, dt, warning=None,
                  hit_stop=None, saucers=None, enemy_shots=None,
-                 blackholes=None, saucer_clock=None, hole_clock=None):
+                 blackholes=None, saucer_clock=None, hole_clock=None,
+                 floaters=None):
     """One simulation step: every per-frame update, frozen whole while paused.
 
     The pause flag is the entire gate (Tier 1): a frozen frame ticks nothing
@@ -421,6 +457,10 @@ def update_world(updatable, drones, asteroids, shots, player1, game, powerups,
         # about to step. A well spawned later in the frame joins the next
         # frame's registry; one frame of latency, never a stale pull.
         blackhole.refresh_live_holes(blackholes)
+    # Magnet (Tier 3): the pull bends velocities before this frame's
+    # updates integrate them — accelerate, then move, the drift's own order.
+    # On sim time: a frozen frame holds the pull like every other sim step.
+    apply_magnet(game, player1, sim_dt, magnet_pullables(powerups, floaters))
     updatable.update(sim_dt)
 
     # Drone turrets fire real shots into the same pipeline (drones PR):
@@ -655,14 +695,19 @@ def float_label(amount):
 
 
 class PopupStyle(NamedTuple):
-    """The resolved look of one floating-popup kind (distinct score popups)."""
+    """The resolved look of one floating-popup kind (distinct score popups).
+
+    magnetic marks the kinds the MAGNET drop bends toward the ship — the
+    credit float rides the pull, the points popup holds its line.
+    """
 
     label: str
     color: tuple
+    magnetic: bool = False
 
 
 def popup_style(kind, amount):
-    """Label + color for a floating popup, by kind.
+    """Label + color + magnet flag for a floating popup, by kind.
 
     Pure (distinct score popups): both kinds share the FloatingText
     dt-timer template but never a look — points announce '+N pts' in the
@@ -670,8 +715,8 @@ def popup_style(kind, amount):
     the two kinds cannot drift into each other.
     """
     if kind == "points":
-        return PopupStyle(f"+{int(amount)} pts", SCORE_COLOR)
-    return PopupStyle(float_label(amount), FLOAT_COLOR)
+        return PopupStyle(f"+{int(amount)} pts", SCORE_COLOR, magnetic=False)
+    return PopupStyle(float_label(amount), FLOAT_COLOR, magnetic=True)
 
 
 def click_damage(shop, economy):
@@ -693,7 +738,8 @@ class FloatingText(pygame.sprite.Sprite):
 
     containers = ()
 
-    def __init__(self, x, y, amount, label=None, color=FLOAT_COLOR):
+    def __init__(self, x, y, amount, label=None, color=FLOAT_COLOR,
+                 magnetic=False):
         if self.containers:
             super().__init__(self.containers)
         else:
@@ -703,11 +749,17 @@ class FloatingText(pygame.sprite.Sprite):
         # can tell which kind a float is without OCR-ing the surface.
         self.label = label or float_label(amount)
         self.color = color
+        # The MAGNET drop bends only the floats flagged magnetic (the credit
+        # kind): their pull rides this velocity, integrated with the rise.
+        # Zero until a magnet grabs the float, so plain floats are unchanged.
+        self.magnetic = magnetic
+        self.velocity = pygame.Vector2(0, 0)
         self.surface = float_font().render(self.label, True, color)
         self.lifetime = FLOAT_LIFETIME_SECONDS
 
     def update(self, dt):
         self.lifetime -= dt
+        self.position += self.velocity * dt
         self.position.y -= FLOAT_RISE_SPEED * dt
         if self.lifetime <= 0:
             self.kill()
@@ -724,7 +776,7 @@ def draw_credits(screen, credits):
 
 
 def render_world(screen, world, background, entities, fx, offset, game,
-                 warning=None, dash_timer=None):
+                 warning=None, dash_timer=None, player=None):
     """The V4 composition: three explicit passes into the world, then the
     screen-level steps — the blueprint's pass split, replacing the single
     flat drawable-group draw.
@@ -757,7 +809,8 @@ def render_world(screen, world, background, entities, fx, offset, game,
              muted=game.muted,  # HUD last, above every world layer
              volume=getattr(game, "volume", None),
              lives_pulse=warning.pulse if warning is not None else None,
-             combo=game.combo, dash_timer=dash_timer)
+             combo=game.combo, dash_timer=dash_timer,
+             magnet=player.magnet_timer if player is not None else None)
 
 
 def main():
@@ -1000,7 +1053,8 @@ def main():
         dt = compute_dt(ms)
         update_world(updatable, drones, asteroids, shots, player1, game,
                      powerups, shake, asteroid_field, banner, economy, dt,
-                     warning, hit_stop=hit_stop, saucers=saucers,
+                     warning, floaters=floaters,
+                     hit_stop=hit_stop, saucers=saucers,
                      enemy_shots=enemy_shots, blackholes=blackholes,
                      saucer_clock=saucer_clock, hole_clock=hole_clock)
 
@@ -1021,6 +1075,7 @@ def main():
                     payout,
                     label=style.label,
                     color=style.color,
+                    magnetic=style.magnetic,
                 )
             prev_asteroids = set(asteroids)
 
@@ -1041,7 +1096,7 @@ def main():
         # moves, entities don't), the halftone print, HUD last and unshaken
         # so the score stays readable while the world rocks (F5).
         render_world(screen, world, background, entities, fx, shake.offset(),
-                     game, warning,
+                     game, warning, player=player1,
                      dash_timer=player1.dash_timer
                      if game.state == "playing" else None)
         draw_credits(screen, economy.credits)

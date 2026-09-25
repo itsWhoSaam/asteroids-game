@@ -98,6 +98,18 @@ class Player(CircleShape):
         """A shield charge is stocked: the next hit is absorbed (F4)."""
         return self.shield_hits > 0
 
+    @property
+    def has_magnet(self):
+        """MAGNET active (Tier 3): nearby pickups and credit floats are
+        pulled this frame; zero otherwise."""
+        return self.magnet_timer > 0
+
+    @property
+    def magnet_timer(self):
+        """Seconds left on the magnet's clock — 0.0 when inactive. The
+        HUD's hidden-while-zero slot reads this."""
+        return self.powerup_timers.get(PowerUpType.MAGNET.value, 0.0)
+
     def respawn(self):
         """Center the ship, zero its velocity, grant the grace window.
 

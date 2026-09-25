@@ -57,7 +57,9 @@ def test_powerup_color_resolves_per_kind():
     assert powerup_color(PowerUpType.SHIELD) is PALETTE["powerup_shield"]
     assert powerup_color(PowerUpType.RAPID) is PALETTE["powerup_rapid"]
     assert powerup_color(PowerUpType.TRIPLE) is PALETTE["powerup_triple"]
-    # the ? wildcard's violet is a palette alias, not a second color source
+    # the ? wildcard's violet is a palette alias, not a second color source;
+    # MAGNET keeps its effect-identity green
+    assert powerup_color(PowerUpType.MAGNET) is PALETTE["powerup_magnet"]
     assert powerup_color(PowerUpType.MYSTERY) is PALETTE["powerup_mystery"]
 
 

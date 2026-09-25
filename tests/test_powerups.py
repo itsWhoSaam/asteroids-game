@@ -95,14 +95,15 @@ def test_drop_chance_boundary():
 
 def test_pick_type_covers_all_types_under_a_seeded_stream():
     """Type selection is pure in the roll: a seeded random stream maps onto
-    the six buffs and every roll lands on a real one (the ? wildcard lives
-    one layer up, in drop_type)."""
+    all seven buffs and every roll lands on a real one — MAGNET appends at
+    the pool's end, so the original six keep their bands; the ? wildcard
+    lives one layer up, in drop_type."""
     random.seed(1234)
     rolls = [random.random() for _ in range(300)]
     assert {pick_type(roll) for roll in rolls} == set(BUFF_TYPES)
     assert pick_type(0.0) is PowerUpType.SHIELD
-    assert pick_type(0.999) is PowerUpType.BOMB
-    assert pick_type(1.0) is PowerUpType.BOMB  # clamped, never IndexError
+    assert pick_type(0.999) is PowerUpType.MAGNET  # the appended seventh band
+    assert pick_type(1.0) is PowerUpType.MAGNET  # clamped, never IndexError
 
 
 # --- Effects: apply, expire, magnitudes -------------------------------------
@@ -259,11 +260,11 @@ def test_destroyed_medium_rock_spawns_a_pickup_at_the_death_site(tmp_path, monke
     game = make_game(tmp_path, player, asteroids, shots, powerups)
     Asteroid(640, 360, ASTEROID_MIN_RADIUS * 2)  # medium: eligible
     Shot(640, 360)
-    # two rolls in the sweep: 0.0 drops the pickup, 0.75 picks pierce —
-    # interior on purpose: drop_type's remap puts bucket edges at nasty
-    # floats (0.5 lands exactly on the shield/rapid smear), so boundary
-    # rolls say nothing about the pool
-    rolls = iter([0.0, 0.75])
+    # two rolls in the sweep: 0.0 drops the pickup, 0.7 picks pierce —
+    # drop_type's remap ((0.7 − 0.4) / 0.6 × 7 = 3.5, band 3) — interior
+    # on purpose: bucket edges sit at nasty floats (0.5 lands exactly on
+    # the shield/rapid smear), so boundary rolls say nothing about the pool
+    rolls = iter([0.0, 0.7])
     monkeypatch.setattr(random, "random", lambda: next(rolls))
 
     handle_collisions(asteroids, shots, player, game, powerups)

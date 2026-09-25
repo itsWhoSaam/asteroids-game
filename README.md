@@ -151,11 +151,19 @@ is eaten agency and drifted trajectories.
 
 **Chaos pickups.** Destroyed non-small asteroids have a 15% chance to
 drop a pickup, and 40% of drops are a violet `?` mystery pickup whose
-contents roll only on collect: 75% an equal draw from the six buffs
-(SHIELD, RAPID, TRIPLE, PIERCE, HOMING, BOMB), 25% a curse — REVERSE
-flips the controls for 6 s, DISARM strips the shield and every running
-effect on reveal. Timed effects last 8 s; BOMB clears the field through
-the normal pipeline (credits pay, the combo doesn't).
+contents roll only on collect: 75% an equal draw from the seven buffs —
+**SHIELD** absorbs one hit, **RAPID** cuts the shot cooldown ×0.4,
+**TRIPLE** fires a three-way spread, **PIERCE** drills shots through
+rocks, **HOMING** steers them at the nearest rock, **BOMB** clears the
+field through the normal pipeline (credits pay, the combo doesn't), and
+**MAGNET** bends drifting pickups and credit floats toward the ship (a
+force on their velocity, never a teleport — closer bodies pull harder,
+capped so nothing slams past the hull; an active magnet shows a
+`MAGNET Ns` tag top-right) — and 25% a curse, either REVERSE (flips the
+controls for 6 s) or DISARM (strips the shield and every running effect
+on reveal). Timed effects last 8 s; tuning lives at the end of
+`constants.py` (`POWERUP_*`, including `POWERUP_MAGNET_*`, and the
+`INSANITY` block).
 
 ## Persistence
 

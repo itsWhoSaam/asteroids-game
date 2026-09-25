@@ -496,7 +496,7 @@ class LowLivesWarning:
 
 
 def draw_hud(screen, score, lives=0, wave=0, muted=False, volume=None,
-             lives_pulse=None, combo=None, dash_timer=None):
+             lives_pulse=None, combo=None, dash_timer=None, magnet=None):
     """Draw the HUD top-left on a yellow halftone panel (visual V5). Score
     always shows; the lives and wave slots stay hidden while zero — F2 and
     F3 feed them.
@@ -515,6 +515,11 @@ def draw_hud(screen, score, lives=0, wave=0, muted=False, volume=None,
     combo readout sits directly under the wave slot, amber and dimming as
     its window drains; the dash slot below shows ready or the cooling
     seconds.
+
+    magnet (Tier 3): seconds left on the MAGNET drop's clock, rendered as
+    a MAGNET Ns tag on the row below the audio tags — hidden while zero
+    like the lives/wave slots, and in the effect's palette green so the
+    color names the pull the same way the pickup's ring does.
 
     All text renders through the shared comicfx cache: one render per
     distinct (string, color, size), never per frame."""
@@ -592,6 +597,16 @@ def draw_hud(screen, score, lives=0, wave=0, muted=False, volume=None,
         if muted_rect is not None:
             right -= muted_rect.width + HUD_TAG_GAP
         screen.blit(surface, surface.get_rect(topright=(right, HUD_MARGIN)))
+    if magnet is not None and magnet > 0:
+        # Second row at the right edge: free real estate below the audio
+        # tags, clear of the HUD panel (left), the toasts (top center) and
+        # the banner (screen center).
+        surface = cached_text(
+            f"MAGNET {int(magnet)}s", PALETTE["powerup_magnet"], HUD_FONT_SIZE
+        )
+        screen.blit(surface, surface.get_rect(
+            topright=(SCREEN_WIDTH - HUD_MARGIN, HUD_MARGIN + HUD_LINE_STEP)
+        ))
 
 
 def draw_boss_bar(screen, boss):

@@ -94,7 +94,7 @@ def test_mystery_open_bounds_pin_the_gamble():
     assert mystery_pick_type(0.124) is PowerUpType.REVERSE
     assert mystery_pick_type(0.125) is PowerUpType.DISARM
     assert mystery_pick_type(MYSTERY_CURSE_CHANCE) is PowerUpType.SHIELD
-    assert mystery_pick_type(0.9999) is PowerUpType.BOMB
+    assert mystery_pick_type(0.9999) is PowerUpType.MAGNET
     assert mystery_pick_type(1.0) is PowerUpType.SHIELD  # clamped, never IndexError
 
 
@@ -117,12 +117,12 @@ def test_mystery_open_seeded_stream_covers_every_content():
 
 def test_drop_type_rolls_the_wildcard_share():
     """40% of paid drops are the ? wildcard (strict <), the rest an equal
-    draw from the six buffs, clamped at the top of the roll."""
+    draw from the seven buffs, clamped at the top of the roll."""
     assert drop_type(0.0) is PowerUpType.MYSTERY
     assert drop_type(0.3999) is PowerUpType.MYSTERY
     assert drop_type(MYSTERY_DROP_CHANCE) is PowerUpType.SHIELD  # boundary: no wildcard
     assert drop_type(0.55) is PowerUpType.RAPID
-    assert drop_type(1.0) is PowerUpType.BOMB  # clamped, never IndexError
+    assert drop_type(1.0) is PowerUpType.MAGNET  # clamped, never IndexError
 
 
 def test_drop_rate_seeded_stream_lands_near_the_wildcard_share():
@@ -161,7 +161,7 @@ def test_mystery_collects_into_a_buff_through_the_sweep(tmp_path, monkeypatch):
     player = Player(100, 660)
     game = make_game(tmp_path, player, asteroids, shots, powerups)
     PowerUp(100, 660, PowerUpType.MYSTERY)
-    monkeypatch.setattr(random, "random", lambda: 0.6)  # the open: a buff
+    monkeypatch.setattr(random, "random", lambda: 0.5)  # the open: a buff
 
     handle_collisions(asteroids, shots, player, game, powerups)
 
@@ -331,7 +331,7 @@ def test_bomb_through_the_sweep_pays_credits_via_the_diff(tmp_path, monkeypatch)
     shake = Shake()
     player.bomb_field = lambda: bomb_clear(hit_stop, shake, asteroids)
     PowerUp(100, 660, PowerUpType.MYSTERY)
-    monkeypatch.setattr(random, "random", lambda: 0.9)  # the open: a bomb
+    monkeypatch.setattr(random, "random", lambda: 0.84)  # the open: a bomb
 
     handle_collisions(asteroids, shots, player, game, powerups)
 

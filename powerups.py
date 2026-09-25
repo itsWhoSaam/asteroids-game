@@ -23,14 +23,18 @@ from constants import (
     POWERUP_DROP_CHANCE,
     POWERUP_DRIFT_SPEED,
     POWERUP_FONT_SIZE,
+    POWERUP_MAGNET_ACCELERATION,
+    POWERUP_MAGNET_MAX_SPEED,
+    POWERUP_MAGNET_RADIUS,
     POWERUP_RADIUS,
 )
 
 
 class PowerUpType(enum.StrEnum):
-    """The pickups (insanity chaos grows the pool from three to nine).
-    Values key the constants tables (F4); MYSTERY is the wildcard — its
-    contents roll only when collected."""
+    """The pickups. Values key the constants tables (F4). MAGNET bends
+    drifting drops toward the ship; the insanity chaos grows the pool from
+    three to seven buffs plus two hidden curses; MYSTERY is the wildcard —
+    its contents roll only when collected."""
 
     SHIELD = "shield"
     RAPID = "rapid"
@@ -40,12 +44,14 @@ class PowerUpType(enum.StrEnum):
     BOMB = "bomb"
     REVERSE = "reverse"
     DISARM = "disarm"
+    MAGNET = "magnet"
     MYSTERY = "mystery"
 
 
-# The six buffs (insanity chaos): direct drops draw evenly from this pool,
-# and a mystery open falls back to it 75% of the time. Order fixes both
-# roll mappings (pick_type and mystery_pick_type).
+# The seven buffs (insanity chaos + main's MAGNET): direct drops draw evenly
+# from this pool, and a mystery open falls back to it 75% of the time. Order
+# fixes both roll mappings (pick_type and mystery_pick_type) — MAGNET
+# appends last so every existing type keeps its roll band.
 BUFF_TYPES = (
     PowerUpType.SHIELD,
     PowerUpType.RAPID,
@@ -53,6 +59,7 @@ BUFF_TYPES = (
     PowerUpType.PIERCE,
     PowerUpType.HOMING,
     PowerUpType.BOMB,
+    PowerUpType.MAGNET,
 )
 
 # The two curses: mystery contents only. A curse landing on the field as a
@@ -61,20 +68,20 @@ BUFF_TYPES = (
 # something when the curse had a hiding place).
 CURSE_TYPES = (PowerUpType.REVERSE, PowerUpType.DISARM)
 
-# Direct-drop selection pool: the six buffs (grew from the original three —
-# the Curses ride the mystery wildcard instead).
+# Direct-drop selection pool: the seven buffs (the Curses ride the mystery
+# wildcard instead).
 POWERUP_TYPES = BUFF_TYPES
 
 # The ? pickup's stamp: the wildcard reads as a question mark, not an M —
 # the gamble is the point. Every other kind stamps its initial.
 PICKUP_LABELS = {PowerUpType.MYSTERY: "?"}
 
-# Per-kind palette keys (visual V1): each pickup keeps its effect identity
-# color — SHIELD cyan, RAPID orange, TRIPLE magenta, and the ? violet.
+# Per-kind palette keys (visual V1)
 POWERUP_COLOR_KEYS = {
     PowerUpType.SHIELD: "powerup_shield",
     PowerUpType.RAPID: "powerup_rapid",
     PowerUpType.TRIPLE: "powerup_triple",
+    PowerUpType.MAGNET: "powerup_magnet",
     PowerUpType.MYSTERY: "powerup_mystery",
 }
 
@@ -105,7 +112,7 @@ def pick_type(roll):
 def drop_type(roll):
     """Pure: what a paid drop is (insanity chaos). The first 40% of the roll
     is the ? wildcard — its contents roll only on collect — the rest an
-    equal draw from the six buffs. Curses never drop directly: the reveal
+    equal draw from the seven buffs. Curses never drop directly: the reveal
     is the gamble, and the drop roll's remap mirrors mystery_pick_type's."""
     if roll < MYSTERY_DROP_CHANCE:
         return PowerUpType.MYSTERY
@@ -116,13 +123,42 @@ def drop_type(roll):
 def mystery_pick_type(roll):
     """Pure decision for a collected ? pickup (insanity chaos): the first
     25% of the roll is the sting — a curse, equal odds reverse/disarm —
-    the rest an equal draw from the six buffs. The reveal logs
+    the rest an equal draw from the seven buffs. The reveal logs
     curse_revealed and plays SFX_CURSE: the sound that makes the next ?
     hesitate."""
     if roll < MYSTERY_CURSE_CHANCE:
         return CURSE_TYPES[int(roll / MYSTERY_CURSE_CHANCE * len(CURSE_TYPES))]
     buff_roll = (roll - MYSTERY_CURSE_CHANCE) / (1.0 - MYSTERY_CURSE_CHANCE)
     return BUFF_TYPES[int(buff_roll * len(BUFF_TYPES)) % len(BUFF_TYPES)]
+
+
+def magnet_pull(position, attractor, velocity, radius=POWERUP_MAGNET_RADIUS,
+                strength=POWERUP_MAGNET_ACCELERATION,
+                max_speed=POWERUP_MAGNET_MAX_SPEED, dt=1 / 60):
+    """Pure magnet step (Tier 3): the velocity a body under the pull has
+    after this frame.
+
+    Accelerates toward the attractor, eased linearly from full strength at
+    its center to zero at the rim — a body just inside the band barely
+    feels the field, one closing in pulls hard. The cap bounds the total
+    speed so the grab can never sling a body past the ship. A body at or
+    beyond the radius (the boundary rides the no-pull side, like the drop
+    roll's strict `<`), or exactly on the attractor where direction is
+    undefined, keeps its velocity untouched. Force, not teleport: the
+    position is never read for mutation — the caller integrates the
+    returned velocity with its own update.
+
+    All arguments are pygame.Vector2-compatible; the return is a Vector2.
+    """
+    offset = attractor - position
+    distance = offset.length()
+    if distance >= radius or distance <= 0:
+        return pygame.Vector2(velocity)
+    falloff = 1.0 - distance / radius
+    pulled = velocity + offset.normalize() * (strength * falloff * dt)
+    if pulled.length() > max_speed:
+        pulled = pulled * (max_speed / pulled.length())
+    return pulled
 
 
 _label_font_cache = None
