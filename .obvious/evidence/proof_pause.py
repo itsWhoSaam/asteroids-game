@@ -26,13 +26,13 @@ import pygame
 
 from asteroid import Asteroid
 from asteroidfield import AsteroidField
-from comicfx import build_background
-from constants import PALETTE, SCREEN_HEIGHT, SCREEN_WIDTH
+from comicfx import build_background_layers
+from constants import SCREEN_HEIGHT, SCREEN_WIDTH
 from drones import DroneBay
 from economy import Economy
 from game import Game
-from hud import WaveBanner, draw_hud, draw_pause
-from main import update_world
+from hud import WaveBanner, draw_pause
+from main import render_world, update_world
 from particles import Shake
 from player import Player
 from shot import Shot
@@ -56,7 +56,15 @@ economy = Economy(save_path="/tmp/obv-evidence/idle_save.json")
 drones = DroneBay(economy)
 banner = WaveBanner()
 shake = Shake()
-background = build_background(SCREEN_WIDTH, SCREEN_HEIGHT)
+background = build_background_layers(SCREEN_WIDTH, SCREEN_HEIGHT)
+fx_group = pygame.sprite.Group()  # bursts/particles pass — empty for this scene
+
+
+def render_frame():
+    """One faithful main-loop frame through the real V4 composition."""
+    world = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT))
+    render_world(screen, world, background, drawable, fx_group,
+                 shake.offset(), game)
 
 # A believable mid-run scene: some score, real rocks around the ship.
 # CircleShape leaves velocity at zero — the field normally assigns it on
@@ -71,19 +79,6 @@ for x, y, r, vx, vy in (
 ):
     rock = Asteroid(x, y, r)
     rock.velocity = pygame.Vector2(vx, vy)
-
-
-def render_frame():
-    """One faithful main-loop frame: shaken world, texture, HUD, overlays."""
-    world = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT))
-    world.fill(PALETTE["paper"])
-    for each in drawable:
-        each.draw(world)
-    screen.fill(PALETTE["paper"])
-    screen.blit(world, shake.offset())
-    screen.blit(background, (0, 0))
-    draw_hud(screen, game.score, lives=game.lives, wave=game.wave,
-             muted=game.muted, volume=game.volume)
 
 
 def capture(name):
