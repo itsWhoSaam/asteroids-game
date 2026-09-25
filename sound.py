@@ -39,12 +39,16 @@ from constants import (
     SFX_SHOOT_DURATION,
     SFX_SHOOT_SWEEP,
     SFX_SHOOT_VOLUME,
+    VOLUME_DEFAULT,
+    VOLUME_MAX,
+    VOLUME_MIN,
 )
 
 # The synthesized SFX table, filled once by init(): name -> mixer.Sound.
 # Empty means "audio unavailable" — every play call no-ops.
 _sounds = {}
 _muted = False
+_volume = VOLUME_DEFAULT  # master level 0–100; playback scales by it
 
 
 def init():
@@ -86,14 +90,42 @@ def is_muted():
     return _muted
 
 
+def set_volume(volume):
+    """Store the master level (0–100) — the audible scale for every SFX.
+
+    Playback-only preference, the same seam as mute: the persisted copy
+    lives in the save loader's volume key and reaches this module through
+    this setter. Clamped, never trusted.
+    """
+    global _volume
+    _volume = clamp_volume(volume)
+
+
+def get_volume():
+    """The current master level, 0–100."""
+    return _volume
+
+
+def clamp_volume(volume):
+    """Snap a requested level into the 0–100 range; pure for tests."""
+    return max(VOLUME_MIN, min(VOLUME_MAX, int(volume)))
+
+
+def master_gain(volume):
+    """The mixer gain for a level: 100% → 1.0, 0% → silence. Pure."""
+    return clamp_volume(volume) / 100.0
+
+
 def play(name):
-    """Play a named SFX; a no-op when muted, uninitialized, or unknown."""
+    """Play a named SFX scaled by the master volume; a no-op when muted,
+    uninitialized, or unknown. Mute overrides audibly — the level survives."""
     if _muted or not _sounds:
         return
     sound = _sounds.get(name)
     if sound is None:
         return
     try:
+        sound.set_volume(master_gain(_volume))
         sound.play()
     except Exception as exc:
         _degrade(exc)

@@ -18,11 +18,13 @@ from constants import (
     HUD_FONT_SIZE,
     HUD_LINE_STEP,
     HUD_MARGIN,
+    HUD_TAG_GAP,
     SCORE_LARGE,
     SCORE_MEDIUM,
     SCORE_SMALL,
     SCREEN_HEIGHT,
     SCREEN_WIDTH,
+    VOLUME_DEFAULT,
     WAVE_BANNER_SECONDS,
 )
 from logger import log_event
@@ -30,7 +32,16 @@ from logger import log_event
 SAVE_PATH = "game_save.json"
 
 # Missing or corrupt save data falls back to these, never a crash.
-DEFAULT_SAVE = {"high_score": 0, "muted": False}
+DEFAULT_SAVE = {"high_score": 0, "muted": False, "volume": VOLUME_DEFAULT}
+
+
+def _valid_volume(volume):
+    """Whole percent 0–100: the only thing the volume key accepts."""
+    return (
+        isinstance(volume, int)
+        and not isinstance(volume, bool)
+        and 0 <= volume <= 100
+    )
 
 
 def points_for(radius):
@@ -69,6 +80,8 @@ def load_save(path=SAVE_PATH):
     muted = save.get("muted")
     if not isinstance(muted, bool):
         save["muted"] = DEFAULT_SAVE["muted"]
+    if not _valid_volume(save.get("volume")):
+        save["volume"] = DEFAULT_SAVE["volume"]
     return save
 
 
@@ -96,6 +109,7 @@ class Score:
         self.current = 0
         self.high = self._data["high_score"]
         self.muted = self._data["muted"]
+        self.volume = self._data["volume"]
         self._beaten = False
 
     def add_score(self, points):
@@ -114,6 +128,7 @@ class Score:
         self.high = self.current
         self._data["high_score"] = self.high
         self._data["muted"] = self.muted
+        self._data["volume"] = self.volume
         write_save(self.save_path, self._data)
 
     def set_muted(self, muted):
@@ -123,6 +138,15 @@ class Score:
         self._data["muted"] = muted
         write_save(self.save_path, self._data)
         return muted
+
+    def set_volume(self, volume):
+        """Persist the master volume level (UX wave) through the save
+        loader, mirroring set_muted. The managed write updates the volume
+        key; unknown keys still ride along."""
+        self.volume = volume
+        self._data["volume"] = self.volume
+        write_save(self.save_path, self._data)
+        return self.volume
 
     @property
     def beaten(self):
@@ -150,11 +174,14 @@ def hud_font():
     return _hud_font_cache
 
 
-def draw_hud(screen, score, lives=0, wave=0, muted=False):
+def draw_hud(screen, score, lives=0, wave=0, muted=False, volume=None):
     """Draw the HUD top-left. Score always shows; the lives and wave slots
-    stay hidden while zero — F2 and F3 feed them. While playback is muted
-    (F6) a small MUTED tag sits top-right — the only visible feedback
-    silence ever gives."""
+    stay hidden while zero — F2 and F3 feed them.
+
+    The audio tags render top-right: while playback is muted (F6) a MUTED
+    tag sits in the corner, and a VOL N% tag (volume PR) sits beside it —
+    to its left, separated by HUD_TAG_GAP — whenever a level is known.
+    """
     lines = [f"Score: {score}"]
     if lives:
         lines.append(f"Lives: {lives}")
@@ -168,6 +195,12 @@ def draw_hud(screen, score, lives=0, wave=0, muted=False):
         surface = font.render("MUTED", True, HUD_COLOR)
         rect = surface.get_rect(topright=(SCREEN_WIDTH - HUD_MARGIN, HUD_MARGIN))
         screen.blit(surface, rect)
+    if volume is not None:
+        surface = font.render(f"VOL {volume}%", True, HUD_COLOR)
+        right = SCREEN_WIDTH - HUD_MARGIN
+        if muted:
+            right -= rect.width + HUD_TAG_GAP
+        screen.blit(surface, surface.get_rect(topright=(right, HUD_MARGIN)))
 
 
 _game_over_font_cache = None

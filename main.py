@@ -269,6 +269,9 @@ def main():
     # F6: start from the persisted mute preference — the sound module only
     # learns it here; playback stays suppressed either way.
     sound.set_muted(game.muted)
+    # Master volume: same seam, one sync — the persisted level scales every
+    # SFX from the first frame.
+    sound.set_volume(game.volume)
 
     # The field reads the wave off the Game (F3), so it is built after one
     # exists. The WAVE 1 flash arms at game start.
@@ -314,6 +317,13 @@ def main():
                 # through the save loader. Kept in this event-pump block;
                 # later features add their input alongside it.
                 sound.set_muted(game.toggle_mute())
+            if event.type == pygame.KEYDOWN and event.key in (pygame.K_LEFTBRACKET, pygame.K_RIGHTBRACKET):
+                # Master volume (UX wave): [ steps down, ] steps up, 10%
+                # per press in any state, persisted through the save
+                # loader. Mute still overrides audibly and never touches
+                # the level — same seam as the M branch above.
+                direction = 1 if event.key == pygame.K_RIGHTBRACKET else -1
+                sound.set_volume(game.step_volume(direction))
             if event.type == pygame.KEYDOWN and game.state == "game_over":
                 # R restarts, Q quits (engagement F2). Kept in this event-pump
                 # block; later features add their input alongside it.
@@ -421,7 +431,7 @@ def main():
         screen.blit(background, (0, 0))
 
         draw_hud(screen, game.score, lives=game.lives, wave=game.wave,
-                 muted=game.muted)
+                 muted=game.muted, volume=game.volume)
         draw_credits(screen, economy.credits)
         offline_banner.update(dt)
         offline_banner.draw(screen)

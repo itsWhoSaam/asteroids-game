@@ -279,3 +279,15 @@ SFX_POWERUP_VOLUME = 0.5
 SFX_GAME_OVER_DURATION = 0.8
 SFX_GAME_OVER_SWEEP = (440.0, 90.0)
 SFX_GAME_OVER_VOLUME = 0.6
+
+# --- Master volume (UX wave) -------------------------------------------------
+# '[' / ']' step the master volume between 0 and 100 in 10% steps; every SFX
+# scales by the level at playback (the per-cue volumes above stay baked into
+# the buffers). Mute still suppresses playback outright and never overwrites
+# the stored level. The level persists in game_save.json through the save
+# loader's read-modify-write merge.
+VOLUME_MIN = 0
+VOLUME_MAX = 100
+VOLUME_STEP = 10                   # percent per '[' / ']' press
+VOLUME_DEFAULT = 100               # fresh installs and corrupt saves land here
+HUD_TAG_GAP = 10                   # px between the VOL and MUTED tags top-right
