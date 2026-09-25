@@ -20,6 +20,11 @@ from constants import (
     LINE_WIDTH,
     MINION_CHECKPOINT_FRACTIONS,
     MINION_RADIUS_MULTIPLIER,
+    MINE_BLAST_RADIUS,
+    MINE_MARKER_BLINK_HZ,
+    MINE_MARKER_COLOR,
+    MINE_MARKER_RADIUS,
+    MINE_SPAWN_CHANCE,
     PALETTE,
     SCREEN_HEIGHT,
     SCREEN_WIDTH,
@@ -283,3 +288,101 @@ class Boss(Asteroid):
     @property
     def kill_points(self):
         return BOSS_POINTS
+
+
+# --- Mine asteroids (Tier 3) ---------------------------------------------------
+
+
+def mine_spawn_rolls_in(roll, chance=MINE_SPAWN_CHANCE):
+    """Pure: True when a field spawn's roll arms a mine.
+
+    Strict <, the drops_powerup precedent — a roll exactly at the chance is
+    a plain rock, so the boundary is pinned by tests, not float luck.
+    """
+    return roll < chance
+
+
+def mine_marker_on(clock, period=1.0 / MINE_MARKER_BLINK_HZ):
+    """Pure square wave: the danger marker shows for the first half of each
+    blink period. The mine accumulates its own clock in update(dt) — sim
+    time, so a paused or frozen frame holds the phase with everything else.
+    """
+    return (clock % period) < (period / 2)
+
+
+def in_blast_radius(center, position, blast_radius):
+    """Pure: True when position sits inside the blast circle.
+
+    The rim is inclusive — "inside the radius" reads as at-or-within, and
+    the inclusive side is the conservative one for a hazard.
+    """
+    return center.distance_to(position) <= blast_radius
+
+
+def blast_victims(asteroids, center, blast_radius, exclude=None):
+    """Pure selection: the live asteroids inside a blast circle, minus the
+    excluded body (the detonating mine itself). One gate, so main's
+    detonation and the tests agree on exactly who pays.
+    """
+    return [
+        asteroid
+        for asteroid in asteroids
+        if asteroid.alive()
+        and asteroid is not exclude
+        and in_blast_radius(center, asteroid.position, blast_radius)
+    ]
+
+
+class Mine(Asteroid):
+    """An armed rock (Tier 3): dark hull, blinking danger marker, and a
+    blast when a SHOT kills it.
+
+    It flies, culls, chips, and mints exactly like its host rock — the
+    variant changes the death, not the drift. Shots route through the
+    ordinary take_hit seam into split(), which for a mine is detonation
+    without fission (no baby mines); the blast itself is wired in main's
+    sweep — the one place a shot kill is known — because a mine stays a
+    dumb body with no world refs (the Boss precedent).
+    """
+
+    def __init__(self, x, y, radius):
+        super().__init__(x, y, radius)
+        self.blink_clock = 0.0
+
+    @property
+    def blast_radius(self):
+        return MINE_BLAST_RADIUS
+
+    def update(self, dt):
+        super().update(dt)
+        self.blink_clock += dt
+
+    def draw(self, screen):
+        # A dark filled hull — distinctly not a tier hue — under the same
+        # inked stroke every rock wears, then the blinking marker tells you
+        # what this one is. Headless-safe: flat fills, no per-pixel alpha.
+        pygame.draw.circle(screen, PALETTE["mine_hull"], self.position, self.radius)
+        chromatic_circle(
+            screen,
+            PALETTE["mine_hull"],
+            self.position,
+            self.radius,
+            LINE_WIDTH
+        )
+        if mine_marker_on(self.blink_clock):
+            pygame.draw.circle(
+                screen, MINE_MARKER_COLOR, self.position, MINE_MARKER_RADIUS
+            )
+        # Chipped mines wear cracks like any rock (free from the base draw).
+        stage = crack_stage(self.chip_damage, self.radius)
+        if stage > 0:
+            draw_cracks(screen, self.position, self.radius, stage, self.crack_seed)
+
+    def split(self):
+        """Detonation, not fission: the mine dies without children. Every
+        kill path — shots, the nuke, restart — lands here, so the
+        destruction diff still sees an honest single-body wreck."""
+        if not self.alive():
+            return
+        self.kill()
+
