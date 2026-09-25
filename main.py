@@ -24,7 +24,7 @@ from constants import (
 )
 from asteroid import Asteroid
 from asteroidfield import AsteroidField
-from comicfx import build_background
+from comicfx import Burst, build_background_layers, burst_word, spawn_burst
 from economy import Economy
 from drones import DroneBay, OfflineBanner, drone_dps
 from game import Game
@@ -66,6 +66,13 @@ def handle_collisions(asteroids, shots, player1, game, powerups, shake=None):
                 continue
             if asteroid.collides_with(shot):
                 log_event("asteroid_shot")
+                # V4: the word pops first, so it joins fx ahead of the
+                # debris — the burst polygon sits behind the particle cloud
+                # it salutes. POW! on large, BOOM! on medium, small stays
+                # silent (burst_word is the pure gate).
+                word = burst_word(asteroid.radius)
+                if word is not None:
+                    spawn_burst(asteroid.position, asteroid.radius, word)
                 # F5: the parent bursts at its death site right before
                 # splitting — any size; a large rock's destruction also
                 # rocks the screen, mildly and scaled to its size. One
@@ -237,6 +244,35 @@ def draw_credits(screen, credits):
     screen.blit(surface, (HUD_MARGIN, HUD_MARGIN + 3 * HUD_LINE_STEP))
 
 
+def render_world(screen, world, background, entities, fx, offset, game):
+    """The V4 composition: three explicit passes into the world, then the
+    screen-level steps — the blueprint's pass split, replacing the single
+    flat drawable-group draw.
+
+    Pass 1 paints the static action lines: the background pass, the only
+    place background treatment may paint (entity draw functions never
+    paint background, so their tests keep black-screen assertions). Pass 2
+    draws the entities; pass 3 the fx — particles and burst texts, always
+    above the field they decorate. The world blits at the shake offset
+    (the draw origin moves, entity positions never do), the halftone
+    dot-screen prints over it at screen level, and the HUD renders last,
+    unshaken."""
+    action_lines, halftone = background
+    world.fill(PALETTE["paper"])
+    world.blit(action_lines, (0, 0))  # pass 1: static action lines
+    for each in entities:  # pass 2: player, rocks, shots, pickups
+        each.draw(world)
+    for each in fx:  # pass 3: particles + bursts, always atop entities
+        each.draw(world)
+
+    screen.fill(PALETTE["paper"])
+    screen.blit(world, offset)
+    screen.blit(halftone, (0, 0))  # the screen-level print, over the world
+    draw_hud(screen, game.score, lives=game.lives, wave=game.wave,
+             muted=game.muted,  # HUD last, above every world layer
+             volume=getattr(game, "volume", None))
+
+
 def main():
     pygame.init()
     sound.init()  # F6: mixer + SFX; any failure degrades to a silent no-op
@@ -245,21 +281,27 @@ def main():
     screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
 
     updatable = pygame.sprite.Group()
-    drawable = pygame.sprite.Group()
+    # V4: the flat drawable group splits into explicit passes — entities
+    # (player, rocks, shots, pickups) and fx (particles, bursts, floaters)
+    # — so fx always renders above the field it decorates, no matter the
+    # order things spawned in.
+    entities = pygame.sprite.Group()
+    fx = pygame.sprite.Group()
     asteroids = pygame.sprite.Group()
     shots = pygame.sprite.Group()
     floaters = pygame.sprite.Group()
     powerups = pygame.sprite.Group()
     particles = pygame.sprite.Group()
 
-    Asteroid.containers = (asteroids, updatable, drawable)
-    Shot.containers = (shots, updatable, drawable)
-    PowerUp.containers = (powerups, updatable, drawable)
-    Particle.containers = (particles, updatable, drawable)
+    Asteroid.containers = (asteroids, updatable, entities)
+    Shot.containers = (shots, updatable, entities)
+    PowerUp.containers = (powerups, updatable, entities)
+    Particle.containers = (particles, updatable, fx)
     AsteroidField.containers = updatable
-    FloatingText.containers = (floaters, updatable, drawable)
+    FloatingText.containers = (floaters, updatable, fx)
+    Burst.containers = (fx, updatable)
 
-    Player.containers = (updatable, drawable)
+    Player.containers = (updatable, entities)
     player1 = Player(SCREEN_WIDTH/2, SCREEN_HEIGHT/2 )
     # F5: the shake lives in main (it offsets the render, not the world);
     # Game and the sweep get it so they can kick it where lives are lost
@@ -298,11 +340,12 @@ def main():
     # blit origin — entity draw calls and positions never change. Built once.
     world = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT))
 
-    # V3: the comic background pre-renders once alongside it — halftone
-    # dot-screen and radial action lines over the paper — and blits every
-    # frame as a screen-level print texture. Entity draw functions never
-    # paint background; all background treatment lives in this composition.
-    background = build_background(SCREEN_WIDTH, SCREEN_HEIGHT)
+    # V3/V4: the comic background pre-renders once as a pair — the action
+    # lines layer (blitted into the world as the background pass, under the
+    # entities) and the halftone dot-screen (the screen-level print over the
+    # shaken world). Entity draw functions never paint background; all
+    # background treatment lives in this composition.
+    background = build_background_layers(SCREEN_WIDTH, SCREEN_HEIGHT)
 
     while True:
         log_state()
@@ -417,21 +460,12 @@ def main():
             autosave_timer = 0.0
             economy.save()
 
-        world.fill(PALETTE["paper"])
-        for each in drawable:
-            each.draw(world)
-
-        # The world is blitted at the shaken offset — the draw origin moves,
-        # entities don't. HUD and banners draw after, unshaken, so the
-        # score stays readable while the world rocks (F5).
-        screen.fill(PALETTE["paper"])
-        screen.blit(world, shake.offset())
-        # V3: the print texture sits over the shaken world and under the HUD
-        # — screen-level, so it never scrolls or shakes with the world.
-        screen.blit(background, (0, 0))
-
-        draw_hud(screen, game.score, lives=game.lives, wave=game.wave,
-                 muted=game.muted, volume=game.volume)
+        # V4: three explicit passes into the world, then the screen-level
+        # steps — the world blit at the shaken offset (the draw origin
+        # moves, entities don't), the halftone print, HUD last and unshaken
+        # so the score stays readable while the world rocks (F5).
+        render_world(screen, world, background, entities, fx, shake.offset(),
+                     game)
         draw_credits(screen, economy.credits)
         offline_banner.update(dt)
         offline_banner.draw(screen)
