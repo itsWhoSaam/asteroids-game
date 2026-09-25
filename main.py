@@ -29,6 +29,7 @@ from constants import (
     SHAKE_LARGE_ASTEROID,
     SHOP_BRIGHT_COLOR,
 )
+from achievements import Achievements, event_stats_from
 from asteroid import Asteroid
 from asteroidfield import AsteroidField
 from comicfx import Burst, build_background_layers, burst_word, spawn_burst
@@ -556,6 +557,10 @@ def main():
     # directly — the menu is main()'s flow, not the Game's default.
     game.state = "menu"
 
+    # Achievements (Tier 2): the unlocked set loads from the shared save's
+    # merge; evaluation below is pure and idempotent, so it can run every
+    # unpaused frame.
+    achievements = Achievements()
     prev_asteroids = set(asteroids)
     autosave_timer = 0.0
 
@@ -698,6 +703,13 @@ def main():
                 )
             prev_asteroids = set(asteroids)
 
+            # Achievements (Tier 2): a pure per-frame evaluation over the
+            # run and lifetime counters — idempotent once everything is
+            # unlocked. New awards persist through the save merge and queue
+            # toasts. Frozen frames evaluate nothing, like the mint poll.
+            achievements.evaluate(event_stats_from(game, economy))
+            achievements.update(dt)
+
             autosave_timer += dt
             if autosave_timer >= IDLE_AUTOSAVE_SECONDS:
                 autosave_timer = 0.0
@@ -716,6 +728,7 @@ def main():
         drones.draw(screen, player1)
         shop.draw_panel(screen)
         shop.draw_powerups(screen)
+        achievements.draw(screen)  # the top-center toast seat, under overlays
         if game.state == "menu":
             # Tier 2: the difficulty select over the still, empty field.
             draw_mode_menu(screen, game.mode, game.high_scores)

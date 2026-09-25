@@ -156,6 +156,22 @@ class Score:
         self.volume = self._data["volume"]
         self._beaten = False
 
+    def _persist(self, updates):
+        """Re-read the shared file, merge only the named updates, write.
+
+        The write this replaces flushed the construction-time snapshot —
+        a fresh-dict write in disguise: any key another feature wrote
+        after Score was built (the achievements key is the first) was
+        erased on the next crossing. The docstring contract below —
+        unknown keys survive our writes — only holds if every write
+        re-reads first, the same read-modify-write Economy.save uses.
+        Callers pass exactly the managed keys they own, so a mute
+        toggle never mints the per-mode key a crossing owns.
+        """
+        self._data = load_save(self.save_path)
+        self._data.update(updates)
+        write_save(self.save_path, self._data)
+
     def add_score(self, points):
         """Add points and persist a newly beaten high score.
 
@@ -172,18 +188,14 @@ class Score:
         self.high = self.current
         if self.high > self._global_high:
             self._global_high = self.high
-        self._data[HIGH_SCORE_SAVE_KEYS[self.mode]] = self.high
-        self._data["high_score"] = self._global_high
-        self._data["muted"] = self.muted
-        self._data["volume"] = self.volume
-        write_save(self.save_path, self._data)
+        self._persist({HIGH_SCORE_SAVE_KEYS[self.mode]: self.high,
+                       "high_score": self._global_high})
 
     def set_muted(self, muted):
         """Persist the mute preference (F6) through the save loader: the
-        whole save dict is written, so unknown keys still ride along."""
+        whole save dict is re-read and merged, so unknown keys ride along."""
         self.muted = muted
-        self._data["muted"] = muted
-        write_save(self.save_path, self._data)
+        self._persist({"muted": self.muted})
         return muted
 
     def set_volume(self, volume):
@@ -191,8 +203,7 @@ class Score:
         loader, mirroring set_muted. The managed write updates the volume
         key; unknown keys still ride along."""
         self.volume = volume
-        self._data["volume"] = self.volume
-        write_save(self.save_path, self._data)
+        self._persist({"volume": self.volume})
         return self.volume
 
     def set_mode(self, mode):
@@ -206,10 +217,9 @@ class Score:
         if mode not in DIFFICULTY_MODES:
             raise ValueError(f"unknown difficulty mode: {mode!r}")
         self.mode = mode
-        self._data[DIFFICULTY_SAVE_KEY] = mode
-        write_save(self.save_path, self._data)
         self.high = self._mode_high(mode)
         self._beaten = False
+        self._persist({DIFFICULTY_SAVE_KEY: self.mode})
         return mode
 
     def _mode_high(self, mode):
