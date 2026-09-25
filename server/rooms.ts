@@ -11,8 +11,11 @@
 
 import {
   addPlayer,
+  buy,
+  clickAt,
   newWorld,
   removePlayer,
+  requestRestart,
   snapshot,
   step,
 } from "../shared";
@@ -311,14 +314,24 @@ export class Room {
 
   /** Client intent for this seat. Input is state for the next tick;
    * buy/click/restart apply immediately — the sim's event-pump semantics
-   * (direct function calls between frames, as the Python build did). */
+   * (direct function calls between frames, as the Python build did). The
+   * sim gates every purchase through the shared Economy: a short ledger
+   * changes nothing, and the returned events ride the next snapshot. */
   handleIntent(seat: Seat, msg: Intent): void {
     switch (msg.t) {
       case "input":
         seat.lastSeq = msg.seq;
         seat.lastControls = msg.controls;
         return;
-      // buy / click / restart land with the purchases + restart commit.
+      case "buy":
+        this.pendingEvents.push(...buy(this.world, msg.slot));
+        return;
+      case "click":
+        this.pendingEvents.push(...clickAt(this.world, msg.x, msg.y));
+        return;
+      case "restart":
+        this.pendingEvents.push(...requestRestart(this.world));
+        return;
     }
   }
 
