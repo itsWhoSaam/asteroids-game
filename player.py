@@ -90,6 +90,13 @@ class Player(CircleShape):
         self.shield_hits -= 1
         return True
 
+    def grant_shield(self, charges=1):
+        """Stock shield absorbs outright (milestone rewards): kept until
+        spent, with no duration clock — unlike a drop-shield, whose timer
+        wipes the pool when it runs out. One shield pool on purpose: the
+        ring draw and absorb_hit read shield_hits alone."""
+        self.shield_hits += charges
+
     def clear_powerups(self):
         """Wipe every active effect — part of the full-restart reset (F4)."""
         self.powerup_timers = {}

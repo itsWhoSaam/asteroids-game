@@ -372,6 +372,15 @@ def draw_pause(screen):
         screen.blit(surface, surface.get_rect(center=center))
 
 
+def wave_banner_text(wave, milestone_credits=None):
+    """The banner line for a wave: plain 'WAVE n', or the milestone
+    announcement when the wave pays one (Tier 1 milestone rewards). Pure:
+    the text resolves from the wave number and the grant alone."""
+    if milestone_credits is None:
+        return f"WAVE {wave}"
+    return f"MILESTONE WAVE {wave} - SHIELD +{int(milestone_credits)} CR"
+
+
 class WaveBanner:
     """Centered 'WAVE n' flash (engagement F3).
 
@@ -393,15 +402,23 @@ class WaveBanner:
         self.duration = duration
         self.timer = 0.0
         self.wave = 1
-        self._letters = None  # [(char, tilt, advance)] laid out per wave
+        self._text = wave_banner_text(1)
+        self._letters = None  # [(char, tilt, advance)] laid out per banner
         self._text_width = 0.0
         self._panel = None  # this banner's own plate; its alpha is mutated
 
-    def show(self, wave):
-        """Arm the flash for a wave: 1 at game start/restart, n+1 on advance."""
+    @property
+    def text(self):
+        """The armed banner line — 'WAVE n' or the milestone announcement."""
+        return self._text
+
+    def show(self, wave, milestone_credits=None):
+        """Arm the flash for a wave: 1 at game start/restart, n+1 on advance.
+        A milestone wave (Tier 1 rewards) announces its grant in the text."""
         self.wave = wave
         self.timer = self.duration
-        self._letters = None  # the wave number changed: re-layout on next draw
+        self._text = wave_banner_text(wave, milestone_credits)
+        self._letters = None  # the text changed: re-layout on next draw
         self._panel = None
 
     def update(self, dt):
@@ -419,7 +436,7 @@ class WaveBanner:
             font = game_over_font()
             self._letters = [
                 (char, letter_tilt(index), font.size(char)[0])
-                for index, char in enumerate(f"WAVE {self.wave}")
+                for index, char in enumerate(self._text)
             ]
             self._text_width = sum(advance for _, _, advance in self._letters)
             self._panel = build_panel(

@@ -346,3 +346,12 @@ SFX_WAVE_CLEAR_NOTE_S = 0.09
 SFX_WAVE_CLEAR_ARPEGGIO = (523.25, 659.25, 783.99, 1046.50)
 SFX_WAVE_CLEAR_VOLUME = 0.45
 
+# --- Wave milestone rewards (Tier 1) -----------------------------------------
+# Every MILESTONE_WAVE_INTERVAL-th cleared wave grants the ship a shield
+# charge plus a flat credit bonus to the idle ledger, announced in the wave
+# banner. The charge is kept until spent — no duration clock, unlike a
+# drop-shield's timed window. The bonus is flat rather than income-scaled so
+# the banner announces the exact number the ledger receives.
+MILESTONE_WAVE_INTERVAL = 5
+MILESTONE_SHIELD_CHARGES = 1
+MILESTONE_CREDIT_BONUS = 500.0

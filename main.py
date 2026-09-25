@@ -1,4 +1,5 @@
 import random
+from typing import NamedTuple
 
 import pygame
 
@@ -13,6 +14,9 @@ from constants import (
     HUD_MARGIN,
     IDLE_AUTOSAVE_SECONDS,
     MAX_DT,
+    MILESTONE_CREDIT_BONUS,
+    MILESTONE_SHIELD_CHARGES,
+    MILESTONE_WAVE_INTERVAL,
     PALETTE,
     POWERUPS,
     POWERUP_ACTIVE_COLOR,
@@ -108,13 +112,42 @@ def handle_collisions(asteroids, shots, player1, game, powerups, shake=None):
                 sound.play(sound.SFX_POWERUP)  # F6: the pickup jingle
 
 
-def maybe_advance_wave(game, field, banner):
+class MilestoneReward(NamedTuple):
+    """What a milestone wave pays: shield charges stocked on the ship and a
+    flat credit bonus to the idle ledger."""
+
+    shield_charges: int
+    credits: float
+
+
+def milestone_reward(wave):
+    """The grant for a wave number, or None when the wave pays none.
+
+    Pure (Tier 1 milestone rewards): exactly the waves divisible by
+    MILESTONE_WAVE_INTERVAL pay, so the trigger is provable without a
+    live game.
+    """
+    if wave % MILESTONE_WAVE_INTERVAL != 0:
+        return None
+    return MilestoneReward(
+        shield_charges=MILESTONE_SHIELD_CHARGES,
+        credits=MILESTONE_CREDIT_BONUS,
+    )
+
+
+def maybe_advance_wave(game, field, banner, player=None, economy=None):
     """Start the next wave once the current one was populated and is cleared
     (engagement F3).
 
     The populated guard is the trap at both ends of a run: at game start and
     after R-restart the field is empty with wave at 1 — without it the
     counter would immediately tick to 2. Game over advances nothing.
+
+    Tier 1 milestone rewards: every 5th wave stocks a shield charge on the
+    ship and pays a flat credit bonus to the idle ledger, announced in the
+    banner text. Player and economy ride optional kwargs — the
+    handle_collisions precedent — so the pinned three-argument call shape
+    (tests, the balance sim) keeps working unchanged.
     """
     if game.state != "playing":
         return
@@ -122,9 +155,25 @@ def maybe_advance_wave(game, field, banner):
         return
     game.wave += 1
     field.start_wave()  # fresh spawn clock and populated guard for the new wave
-    banner.show(game.wave)
+    reward = milestone_reward(game.wave)
+    if reward is not None:
+        if player is not None:
+            player.grant_shield(reward.shield_charges)
+        if economy is not None:
+            economy.grant_milestone(reward.credits)
+    banner.show(
+        game.wave,
+        milestone_credits=None if reward is None else reward.credits,
+    )
     sound.play(sound.SFX_WAVE_CLEAR)  # extra SFX: a rising arpeggio, wave won
     log_event("wave_started", wave=game.wave)
+    if reward is not None:
+        log_event(
+            "milestone_reward",
+            wave=game.wave,
+            shield_charges=reward.shield_charges,
+            credits=reward.credits,
+        )
 
 
 def update_world(updatable, drones, asteroids, shots, player1, game, powerups,
@@ -149,7 +198,7 @@ def update_world(updatable, drones, asteroids, shots, player1, game, powerups,
     drones.update(dt, player1, asteroids, shots)
 
     handle_collisions(asteroids, shots, player1, game, powerups, shake)
-    maybe_advance_wave(game, field, banner)
+    maybe_advance_wave(game, field, banner, player1, economy)
     banner.update(dt)
     shake.update(dt)  # F5: decay toward still before the frame is blitted
 
