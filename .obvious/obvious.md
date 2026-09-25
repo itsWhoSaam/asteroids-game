@@ -20,7 +20,7 @@ Headless run (sandbox/CI — no display needed):
 SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy uv run main.py
 ```
 
-The game loops at 60 FPS until the window QUIT event (or Q at the game-over screen). A player-asteroid collision costs one of three lives — the ship respawns centered with a 2s invulnerability blink — and at zero lives a game-over overlay appears (R restarts, Q quits). Destroyed non-small asteroids have a 15% chance to drop a timed pickup: SHIELD absorbs one hit (ring on the ship), RAPID cuts the shoot cooldown ×0.4, TRIPLE fires a three-way spread — each lasts 8s (R-free retuning lives in `constants.py`). Sound effects are synthesized procedurally at startup (no binary assets) — shoot, three explosion pitches by asteroid size, pickup, game over — and `M` toggles mute (persisted in `game_save.json`; a MUTED indicator shows top-right while muted). Kill with timeout/interrupt for headless runs.
+The game loops at 60 FPS until the window QUIT event (or Q at the game-over screen). A player-asteroid collision costs one of three lives — the ship respawns centered with a 2s invulnerability blink — and at zero lives a game-over overlay appears (R restarts, Q quits). Destroyed non-small asteroids have a 15% chance to drop a timed pickup: SHIELD absorbs one hit (ring on the ship), RAPID cuts the shoot cooldown ×0.4, TRIPLE fires a three-way spread — each lasts 8s (R-free retuning lives in `constants.py`). Sound effects are synthesized procedurally at startup (no binary assets) — shoot, three explosion pitches by asteroid size, pickup, game over — and `M` toggles mute (persisted in `game_save.json`; a MUTED indicator shows top-right while muted). `P` or `Esc` pauses a live run: a paused flag gates every world update and a dimmed PAUSED overlay shows resume (P) / restart (R) / quit (Q); mute stays live while paused and the game-over screen is unaffected. Kill with timeout/interrupt for headless runs.
 
 ## Web Toolchain (multiplayer port)
 
@@ -60,6 +60,8 @@ The authoritative multiplayer host — Node + `ws`, memory-only rooms, one origi
   - `uv run python .obvious/evidence/proof_f4.py` — F4 evidence: pickup drop + shield-ring PNGs to `/tmp/obv-evidence/` (also logs `powerup_spawned`/`powerup_collected` to the repo-root events log).
   - `uv run python .obvious/evidence/proof_f5.py` — F5 evidence: burst before/after PNGs + a two-frame shake-offset pair to `/tmp/obv-evidence/` (offsets printed and asserted different).
   - `uv run python .obvious/evidence/proof_f6.py` — F6 evidence: unmuted/muted HUD pair (MUTED indicator top-right after a simulated M press) to `/tmp/obv-evidence/`, with mixer format, SFX table, and persisted save asserted.
+  - `uv run python .obvious/evidence/proof_v1.py` — visual V1 evidence: comic-palette before/after PNGs (the before frame is a palette regrade back to white-on-black) to `/tmp/obv-evidence/`, with paper/ship/asteroid pixel self-checks asserted.
+  - `uv run python .obvious/evidence/proof_v4.py` — visual V4 evidence: burst frame + lifecycle strip PNGs to `/tmp/obv-evidence/`, with word-tier, 4-text cap, fx-over-entities z-order, cache-flatness, and composite-budget self-checks asserted.
   - `uv run python -m tests._balance_sim` — the ten-minute balance simulation of the main loop (income vs field density per minute, purchase curve, nuke scenario); `tests/test_balance.py` pins the fast gates.
 
 ## Codebase Map
@@ -68,11 +70,12 @@ Flat, single-app repo — all source at root (depth ≤ 2, no sub-apps):
 
 | File | Role |
 |---|---|
-| `main.py` | Entry point; pygame init, sprite groups, main 60 FPS loop, collision handling reporting hits to `Game`, click-damage input and the idle destruction-diff/mint poll (idle core) |
+| `main.py` | Entry point; pygame init, sprite groups, main 60 FPS loop with the pause gate (`update_world` freezes all sim steps while `Game.paused`), collision handling reporting hits to `Game`, click-damage input and the idle destruction-diff/mint poll (idle core); explicit draw passes composed in `render_world()` — action lines under entities, fx (particles + bursts) above, halftone print at screen level, HUD last (visual V4) |
 | `economy.py` | `Economy` — the idle ledger: credits, upgrade cost curve, `mint`/`buy`, `idle_*` keys merged through F1's save loader; the ONLY writer of the ledger |
-| `game.py` | `Game` — run state (score, lives, wave, phase); respawn/invulnerability grants, game-over and full-restart resets (engagement F2) |
-| `constants.py` | Tunables: screen 1280x720, player, asteroid, shot parameters |
+| `game.py` | `Game` — run state (score, lives, wave, phase, pause flag); respawn/invulnerability grants, game-over and full-restart resets (engagement F2) |
+| `constants.py` | Tunables: screen 1280x720, player, asteroid, shot parameters; the `PALETTE` table (visual V1) — the single place color lives, every entity draw and fill resolves through it |
 | `circleshape.py` | `CircleShape` base class (position, velocity, radius, `collides_with`) |
+| `comicfx.py` | Procedural comic FX (no assets, no dependencies): `chromatic_circle`/`chromatic_polygon` ink stacks on entities (V2); `build_background_layers()` pre-renders the action-line + halftone pair once (V4) — main blits the lines into the world under the entities and the halftone print at screen level, entity draw functions never paint background; `Burst` onomatopoeia sprite (jagged polygon + POW!/BOOM!/ZAP! pop-and-fade, 4-text cap, `(word, color, size)` cache shared with pickups/banner) |
 | `player.py` | `Player` — triangle ship, rotate/move/shoot |
 | `asteroid.py` | `Asteroid` — movement, `split()` on hit |
 | `asteroidfield.py` | `AsteroidField` — spawns asteroids from screen edges on a timer; cadence and speed band come from the pure `wave_params(wave)` (engagement F3) |

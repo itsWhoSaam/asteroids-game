@@ -12,7 +12,9 @@ from constants import (
     PLAYER_DEATH_BURST_INTENSITY,
     PLAYER_START_LIVES,
     SHAKE_PLAYER_DEATH,
+    VOLUME_STEP,
 )
+from comicfx import BURST_WORD_DEATH, spawn_burst
 from hud import SAVE_PATH, Score
 from logger import log_event
 import sound
@@ -43,6 +45,9 @@ class Game:
         self.lives = PLAYER_START_LIVES
         self.wave = 1
         self.state = "playing"  # "playing" | "game_over"
+        # Tier 1 pause: True while P/Esc has frozen a live run. Never
+        # persisted, and only ever set inside "playing" — see toggle_pause.
+        self.paused = False
 
     @property
     def score(self):
@@ -62,6 +67,36 @@ class Game:
         Playback-only: the sim never stops for audio, so this is not run
         state — main() relays the return value to the sound module."""
         return self._score.set_muted(not self.muted)
+
+    def toggle_pause(self):
+        """Flip the pause flag on a live run only; True when it flipped.
+
+        Game over owns its own screen (R/Q there, no pause overlay), and a
+        flag riding into a fresh run would freeze wave 1 — so the gate
+        refuses outside "playing", and restart()/game_over() clear it."""
+        if self.state != "playing":
+            return False
+        self.paused = not self.paused
+        log_event("paused" if self.paused else "resumed")
+        return True
+
+    @property
+    def volume(self):
+        """The persisted master level, 0–100 (UX wave)."""
+        return self._score.volume
+
+    def step_volume(self, direction):
+        """Step the master level by one VOLUME_STEP toward `direction`
+        (+1 / -1), clamped to 0–100 and persisted through the save loader;
+        returns the new level for main() to relay to the sound module.
+
+        Playback-only like mute — not run state, so restart hooks don't
+        touch it. Mute never routes through here: stepping keeps the level
+        exactly as it was left.
+        """
+        return self._score.set_volume(
+            sound.clamp_volume(self.volume + direction * VOLUME_STEP)
+        )
 
     @property
     def new_high(self):
@@ -84,6 +119,9 @@ class Game:
         # shake — whether this hit respawns the ship or ends the run. An
         # absorbed (shielded) hit is neither, so it stays silent. The burst
         # is at the death site: respawn() moves the ship right after.
+        # V4: the death word pops first, so it joins fx ahead of the debris
+        # cloud and reads behind it — ZAP!, the player's burst.
+        spawn_burst(self.player.position, self.player.radius, BURST_WORD_DEATH)
         if self.particles is not None:
             burst(self.player.position, self.player.radius,
                   PLAYER_DEATH_BURST_INTENSITY)
@@ -103,6 +141,10 @@ class Game:
     def game_over(self):
         """Run ends: flip state; final score vs high score is on the overlay."""
         self.state = "game_over"
+        # Frozen worlds resolve no hits, so a pause can't coexist with game
+        # over — clearing keeps that invariant structural: the game-over
+        # screen is never dimmed by a stale pause flag.
+        self.paused = False
         log_event("game_over", score=self.score, high_score=self.high_score)
         sound.play(sound.SFX_GAME_OVER)  # F6: the run winding down
 
@@ -112,6 +154,9 @@ class Game:
         self.lives = PLAYER_START_LIVES
         self.wave = 1
         self.state = "playing"
+        # Both restart hooks land here (game-over R and the pause overlay's
+        # R): a fresh run is always live and unpaused.
+        self.paused = False
         # kill() detaches each sprite from ALL its groups (asteroids are also
         # in updatable/drawable) — emptying one group would leave zombie rocks
         # drifting and rendering, unshootable.

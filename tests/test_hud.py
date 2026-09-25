@@ -10,6 +10,7 @@ from constants import (
     ASTEROID_MIN_RADIUS,
     HUD_FONT_SIZE,
     HUD_MARGIN,
+    PALETTE,
     SCREEN_HEIGHT,
     SCREEN_WIDTH,
 )
@@ -53,8 +54,8 @@ def test_points_for_size_table(radius, expected):
 
 def test_save_roundtrip(tmp_path):
     path = tmp_path / "game_save.json"
-    write_save(path, {"high_score": 1234, "muted": True})
-    assert load_save(path) == {"high_score": 1234, "muted": True}
+    write_save(path, {"high_score": 1234, "muted": True, "volume": 70})
+    assert load_save(path) == {"high_score": 1234, "muted": True, "volume": 70}
 
 
 def test_write_preserves_unknown_keys_for_other_features(tmp_path):
@@ -168,7 +169,7 @@ def test_handle_collisions_awards_points_through_the_seam(tmp_path):
 def test_hud_text_surface_renders_nonempty():
     """The HUD font must produce real text surfaces under SDL dummy drivers."""
     pygame.init()
-    surface = hud_font().render("Score: 42", True, "white")
+    surface = hud_font().render("Score: 42", True, PALETTE["hud_ink"])
     assert surface.get_width() > 0
     assert surface.get_height() > 0
 
@@ -178,14 +179,14 @@ def test_draw_hud_paints_score_pixels_headless():
     pygame.init()
     screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
 
-    screen.fill("black")
+    screen.fill(PALETTE["paper"])
     draw_hud(screen, 1234)  # score-only: lives/wave slots still at zero
     samples = [
         screen.get_at((x, y))
         for x in range(HUD_MARGIN, HUD_MARGIN + 200, 4)
         for y in range(HUD_MARGIN, HUD_MARGIN + HUD_FONT_SIZE, 2)
     ]
-    assert any(pixel != (0, 0, 0, 255) for pixel in samples)
+    assert any(pixel != (*PALETTE["paper"], 255) for pixel in samples)
 
     # all three slots filled (F2/F3 will pass real values) must not crash
     draw_hud(screen, 1234, lives=3, wave=2)
@@ -197,7 +198,7 @@ def test_draw_game_over_paints_overlay_pixels_headless():
     pygame.init()
     screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
 
-    screen.fill("black")
+    screen.fill(PALETTE["paper"])
     draw_game_over(screen, 1234, new_high=True)
     center_x, center_y = SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2
     samples = [
@@ -205,7 +206,7 @@ def test_draw_game_over_paints_overlay_pixels_headless():
         for x in range(center_x - 300, center_x + 300, 8)
         for y in range(center_y - 90, center_y + 90, 8)
     ]
-    assert any(pixel != (0, 0, 0, 255) for pixel in samples)
+    assert any(pixel != (*PALETTE["paper"], 255) for pixel in samples)
 
-    screen.fill("black")
+    screen.fill(PALETTE["paper"])
     draw_game_over(screen, 1234, new_high=False)  # no new-high line: no crash

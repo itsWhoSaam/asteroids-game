@@ -18,11 +18,15 @@ from constants import (
     HUD_FONT_SIZE,
     HUD_LINE_STEP,
     HUD_MARGIN,
+    HUD_TAG_GAP,
+    PAUSE_OVERLAY_DIM_ALPHA,
+    PAUSE_OVERLAY_DIM_COLOR,
     SCORE_LARGE,
     SCORE_MEDIUM,
     SCORE_SMALL,
     SCREEN_HEIGHT,
     SCREEN_WIDTH,
+    VOLUME_DEFAULT,
     WAVE_BANNER_SECONDS,
 )
 from logger import log_event
@@ -30,7 +34,16 @@ from logger import log_event
 SAVE_PATH = "game_save.json"
 
 # Missing or corrupt save data falls back to these, never a crash.
-DEFAULT_SAVE = {"high_score": 0, "muted": False}
+DEFAULT_SAVE = {"high_score": 0, "muted": False, "volume": VOLUME_DEFAULT}
+
+
+def _valid_volume(volume):
+    """Whole percent 0–100: the only thing the volume key accepts."""
+    return (
+        isinstance(volume, int)
+        and not isinstance(volume, bool)
+        and 0 <= volume <= 100
+    )
 
 
 def points_for(radius):
@@ -69,6 +82,8 @@ def load_save(path=SAVE_PATH):
     muted = save.get("muted")
     if not isinstance(muted, bool):
         save["muted"] = DEFAULT_SAVE["muted"]
+    if not _valid_volume(save.get("volume")):
+        save["volume"] = DEFAULT_SAVE["volume"]
     return save
 
 
@@ -96,6 +111,7 @@ class Score:
         self.current = 0
         self.high = self._data["high_score"]
         self.muted = self._data["muted"]
+        self.volume = self._data["volume"]
         self._beaten = False
 
     def add_score(self, points):
@@ -114,6 +130,7 @@ class Score:
         self.high = self.current
         self._data["high_score"] = self.high
         self._data["muted"] = self.muted
+        self._data["volume"] = self.volume
         write_save(self.save_path, self._data)
 
     def set_muted(self, muted):
@@ -123,6 +140,15 @@ class Score:
         self._data["muted"] = muted
         write_save(self.save_path, self._data)
         return muted
+
+    def set_volume(self, volume):
+        """Persist the master volume level (UX wave) through the save
+        loader, mirroring set_muted. The managed write updates the volume
+        key; unknown keys still ride along."""
+        self.volume = volume
+        self._data["volume"] = self.volume
+        write_save(self.save_path, self._data)
+        return self.volume
 
     @property
     def beaten(self):
@@ -150,11 +176,14 @@ def hud_font():
     return _hud_font_cache
 
 
-def draw_hud(screen, score, lives=0, wave=0, muted=False):
+def draw_hud(screen, score, lives=0, wave=0, muted=False, volume=None):
     """Draw the HUD top-left. Score always shows; the lives and wave slots
-    stay hidden while zero — F2 and F3 feed them. While playback is muted
-    (F6) a small MUTED tag sits top-right — the only visible feedback
-    silence ever gives."""
+    stay hidden while zero — F2 and F3 feed them.
+
+    The audio tags render top-right: while playback is muted (F6) a MUTED
+    tag sits in the corner, and a VOL N% tag (volume PR) sits beside it —
+    to its left, separated by HUD_TAG_GAP — whenever a level is known.
+    """
     lines = [f"Score: {score}"]
     if lives:
         lines.append(f"Lives: {lives}")
@@ -168,6 +197,12 @@ def draw_hud(screen, score, lives=0, wave=0, muted=False):
         surface = font.render("MUTED", True, HUD_COLOR)
         rect = surface.get_rect(topright=(SCREEN_WIDTH - HUD_MARGIN, HUD_MARGIN))
         screen.blit(surface, rect)
+    if volume is not None:
+        surface = font.render(f"VOL {volume}%", True, HUD_COLOR)
+        right = SCREEN_WIDTH - HUD_MARGIN
+        if muted:
+            right -= rect.width + HUD_TAG_GAP
+        screen.blit(surface, surface.get_rect(topright=(right, HUD_MARGIN)))
 
 
 _game_over_font_cache = None
@@ -200,22 +235,63 @@ def draw_game_over(screen, score, new_high=False):
         screen.blit(surface, rect)
 
 
+_pause_dim_cache = None
+
+
+def pause_dim():
+    """The one dark sheet blitted over the frozen frame while paused.
+
+    Uniform surface alpha via set_alpha — the WaveBanner fade precedent —
+    never per-pixel alpha, which breaks headless dummy drivers. Cached
+    once: rebuilding a full-screen surface every frame would be waste.
+    """
+    global _pause_dim_cache
+    if _pause_dim_cache is None:
+        dim = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT))
+        dim.fill(PAUSE_OVERLAY_DIM_COLOR)
+        dim.set_alpha(PAUSE_OVERLAY_DIM_ALPHA)
+        _pause_dim_cache = dim
+    return _pause_dim_cache
+
+
+def draw_pause(screen):
+    """Centered PAUSED overlay over the dimmed frozen frame (Tier 1 pause):
+    the key contract — resume (P) / restart (R) / quit (Q) — is the only
+    UI a paused frame answers (mute and QUIT aside, in the event pump)."""
+    screen.blit(pause_dim(), (0, 0))
+    lines = ["PAUSED", "press P to resume, R to restart, Q to quit"]
+    font = game_over_font()
+    height = len(lines) * GAME_OVER_LINE_STEP
+    top = SCREEN_HEIGHT / 2 - height / 2
+    for row, text in enumerate(lines):
+        surface = font.render(text, True, HUD_COLOR)
+        rect = surface.get_rect(
+            center=(SCREEN_WIDTH / 2, top + (row + 0.5) * GAME_OVER_LINE_STEP)
+        )
+        screen.blit(surface, rect)
+
+
 class WaveBanner:
     """Centered 'WAVE n' flash (engagement F3).
 
     The house dt-timer pattern — a float decremented every frame, visible
     while positive — with the text alpha fading out over the duration.
+    V4: the text surface renders once per wave, not per frame — only the
+    surface alpha steps with the timer (the surface is this banner's own;
+    no cache entry is ever mutated).
     """
 
     def __init__(self, duration=WAVE_BANNER_SECONDS):
         self.duration = duration
         self.timer = 0.0
         self.wave = 1
+        self._surface = None  # rendered lazily per wave, on the next draw
 
     def show(self, wave):
         """Arm the flash for a wave: 1 at game start/restart, n+1 on advance."""
         self.wave = wave
         self.timer = self.duration
+        self._surface = None  # the wave number changed: re-render on next draw
 
     def update(self, dt):
         if self.timer > 0:
@@ -228,7 +304,8 @@ class WaveBanner:
     def draw(self, screen):
         if not self.visible:
             return
-        surface = game_over_font().render(f"WAVE {self.wave}", True, HUD_COLOR)
-        surface.set_alpha(int(255 * self.timer / self.duration))
-        rect = surface.get_rect(center=(SCREEN_WIDTH / 2, SCREEN_HEIGHT / 3))
-        screen.blit(surface, rect)
+        if self._surface is None:
+            self._surface = game_over_font().render(f"WAVE {self.wave}", True, HUD_COLOR)
+        self._surface.set_alpha(int(255 * self.timer / self.duration))
+        rect = self._surface.get_rect(center=(SCREEN_WIDTH / 2, SCREEN_HEIGHT / 3))
+        screen.blit(self._surface, rect)

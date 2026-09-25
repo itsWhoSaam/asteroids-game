@@ -51,7 +51,33 @@ WAVE_BANNER_SECONDS = 2.0         # WAVE n banner flash duration
 HUD_FONT_SIZE = 28
 HUD_MARGIN = 12
 HUD_LINE_STEP = 34
-HUD_COLOR = "white"
+
+# --- Spider-Verse palette (visual V1) --------------------------------------
+# The single place color lives: every entity draw, screen fill, and the HUD
+# text constant resolve through this table, and the pixel tests assert
+# against these same entries — a regrade is a one-line diff per swatch.
+# Swatches are the spec's tunable "Miles-mode v1" identity.
+PALETTE = {
+    "paper": (23, 18, 58),         # deep-indigo void behind everything
+    "halftone": (62, 51, 140),     # print-screen dots over the paper (V3)
+    "action_line": (40, 32, 94),   # faint radial speed lines (V3)
+    "ship": (62, 230, 240),        # cyan hull (also the shield's hue family)
+    "fringe_r": (255, 51, 85),     # chromatic-aberration pair (outline pass V2)
+    "fringe_c": (47, 212, 255),
+    "asteroid_l": (180, 77, 255),  # one hue per rock size tier
+    "asteroid_m": (255, 45, 149),
+    "asteroid_s": (255, 107, 213),
+    "shot": (255, 233, 74),
+    "powerup_shield": (62, 230, 240),  # effect identity colors (F4)
+    "powerup_rapid": (255, 154, 62),
+    "powerup_triple": (255, 78, 205),
+    "spark": (255, 210, 63),       # warm comic debris (F5)
+    "hud_ink": (255, 247, 230),    # warm white HUD text
+    "hud_panel": (255, 210, 63),   # yellow panels (HUD restyle, later visual PR)
+    "banner": (255, 210, 63),
+}
+
+HUD_COLOR = PALETTE["hud_ink"]
 
 # --- Idle economy core ---------------------------------------------------
 # All balance numbers here are playtest starting values from the idle spec;
@@ -203,6 +229,7 @@ POWERUP_SHIELD_RING_GAP = 8        # px between hull edge and the shield ring
 PARTICLES_PER_RADIUS = 0.5         # burst count = radius × intensity × this
 PARTICLE_LIFETIME_SECONDS = 0.6
 PARTICLE_RADIUS = 3                # spark size at birth, shrinking with life
+PARTICLE_SPAWN_POP = 0.6           # birth-size boost fraction (visual V2 size-pop)
 PARTICLE_MIN_SPEED = 40            # px/s debris speed band, before intensity
 PARTICLE_MAX_SPEED = 160
 PLAYER_DEATH_BURST_INTENSITY = 4.0  # the ship's death bursts harder than rocks
@@ -252,3 +279,50 @@ SFX_POWERUP_VOLUME = 0.5
 SFX_GAME_OVER_DURATION = 0.8
 SFX_GAME_OVER_SWEEP = (440.0, 90.0)
 SFX_GAME_OVER_VOLUME = 0.6
+
+# --- Master volume (UX wave) -------------------------------------------------
+# '[' / ']' step the master volume between 0 and 100 in 10% steps; every SFX
+# scales by the level at playback (the per-cue volumes above stay baked into
+# the buffers). Mute still suppresses playback outright and never overwrites
+# the stored level. The level persists in game_save.json through the save
+# loader's read-modify-write merge.
+VOLUME_MIN = 0
+VOLUME_MAX = 100
+VOLUME_STEP = 10                   # percent per '[' / ']' press
+VOLUME_DEFAULT = 100               # fresh installs and corrupt saves land here
+HUD_TAG_GAP = 10                   # px between the VOL and MUTED tags top-right
+
+# --- Pause overlay (Tier 1) -------------------------------------------------
+# P or Esc freezes a live run: a paused flag gates every world update and a
+# dim sheet plus the PAUSED prompt render over the frozen frame. Pause is
+# run state — never persisted, and every restart unpauses. The dim blits
+# uniform surface alpha (set_alpha, the WaveBanner fade precedent) because
+# per-pixel alpha breaks the headless dummy drivers.
+PAUSE_OVERLAY_DIM_COLOR = (12, 10, 34)  # deep-void family, over the paper
+PAUSE_OVERLAY_DIM_ALPHA = 160           # 0–255 dim strength over the frame
+
+# --- Extra SFX (UX wave) ------------------------------------------------------
+# Three more cues out of the same synth block: the drones' pew (a fleet fires
+# on a cadence, so it sits under the player's shot), the shop's denied buzz
+# for an unaffordable purchase, and the wave-clear arpeggio. Every one scales
+# by master volume and honors mute at playback, exactly like the cues above.
+SFX_DRONE_FIRE = "drone_fire"
+SFX_DENIED = "denied"
+SFX_WAVE_CLEAR = "wave_clear"
+
+# Drone fire: a shorter, brighter pew than the player's own shot.
+SFX_DRONE_FIRE_DURATION = 0.07
+SFX_DRONE_FIRE_SWEEP = (1600.0, 800.0)
+SFX_DRONE_FIRE_VOLUME = 0.35
+
+# Denied: two low square thuds with a gap — the "can't afford it" buzz.
+SFX_DENIED_HZ = 130.0
+SFX_DENIED_THUD_S = 0.07
+SFX_DENIED_GAP_S = 0.04
+SFX_DENIED_VOLUME = 0.4
+
+# Wave clear: a rising major arpeggio (C5 E5 G5 C6), one humped note per slot.
+SFX_WAVE_CLEAR_NOTE_S = 0.09
+SFX_WAVE_CLEAR_ARPEGGIO = (523.25, 659.25, 783.99, 1046.50)
+SFX_WAVE_CLEAR_VOLUME = 0.45
+

@@ -12,6 +12,8 @@ from dataclasses import dataclass
 
 import pygame
 
+import sound
+
 from constants import (
     NANOBLADE_MULT_PER_LEVEL,
     FIRE_RATE_MULT_PER_LEVEL,
@@ -158,6 +160,7 @@ class Shop:
         if name is None:
             return None
         if not self.economy.activate_powerup(name):
+            sound.play(sound.SFX_DENIED)  # extra SFX: can't afford the price
             return None
         return name
 
@@ -166,6 +169,7 @@ class Shop:
         defn = _BY_NAME[name]
         cost = self.economy.upgrade_cost(name)
         if not self.economy.buy(name):
+            sound.play(sound.SFX_DENIED)  # extra SFX: can't afford the level
             return None
         self.apply_effects()
         return Purchase(defn.name, defn.title, self.economy.levels[name], cost)

@@ -13,9 +13,11 @@ import random
 import pygame
 
 from circleshape import CircleShape
+from comicfx import cached_text, chromatic_circle
 from constants import (
     ASTEROID_MIN_RADIUS,
     LINE_WIDTH,
+    PALETTE,
     POWERUP_DROP_CHANCE,
     POWERUP_DRIFT_SPEED,
     POWERUP_FONT_SIZE,
@@ -33,6 +35,19 @@ class PowerUpType(enum.StrEnum):
 
 # Uniform selection pool; this order fixes the pick_type roll mapping.
 POWERUP_TYPES = (PowerUpType.SHIELD, PowerUpType.RAPID, PowerUpType.TRIPLE)
+
+# Per-kind palette keys (visual V1): each pickup keeps its effect identity
+# color — SHIELD cyan, RAPID orange, TRIPLE magenta.
+POWERUP_COLOR_KEYS = {
+    PowerUpType.SHIELD: "powerup_shield",
+    PowerUpType.RAPID: "powerup_rapid",
+    PowerUpType.TRIPLE: "powerup_triple",
+}
+
+
+def powerup_color(kind):
+    """Pure palette hue for a pickup, by its effect type."""
+    return PALETTE[POWERUP_COLOR_KEYS[kind]]
 
 
 def drops_powerup(radius, roll):
@@ -53,17 +68,6 @@ def pick_type(roll):
     return POWERUP_TYPES[index]
 
 
-_label_font_cache = None
-
-
-def label_font():
-    """Lazily built pickup-letter font; pygame.font is ready once pygame.init() ran."""
-    global _label_font_cache
-    if _label_font_cache is None:
-        _label_font_cache = pygame.font.Font(None, POWERUP_FONT_SIZE)
-    return _label_font_cache
-
-
 class PowerUp(CircleShape):
     """A drifting pickup. Constructing one joins its containers like every
     other sprite; the collision sweep reports the collection to the player."""
@@ -78,10 +82,15 @@ class PowerUp(CircleShape):
         )
 
     def draw(self, screen):
-        # White outline like every other entity, with the type's initial
-        # stamped in the middle so the pickup reads at a glance.
-        pygame.draw.circle(screen, "white", self.position, self.radius, LINE_WIDTH)
-        letter = label_font().render(self.kind.value[0].upper(), True, "white")
+        # The kind's identity color rings the pickup and stamps its initial,
+        # so the type reads at a glance across the field. Inked pickup (V2):
+        # the ring goes through the chromatic stack like every other entity.
+        color = powerup_color(self.kind)
+        chromatic_circle(screen, color, self.position, self.radius, LINE_WIDTH)
+        # V4: the letter comes from the shared (word, color, size) cache —
+        # one render per kind for the process, not one per frame per pickup
+        # (the survey's flagged allocation pattern, killed here).
+        letter = cached_text(self.kind.value[0].upper(), color, POWERUP_FONT_SIZE)
         screen.blit(letter, letter.get_rect(center=self.position))
 
     def update(self, dt):
