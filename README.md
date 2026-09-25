@@ -72,6 +72,14 @@ field — the spawn cadence tightens per wave, but income compounds
 faster. All balance numbers live as named constants in `constants.py`;
 the values there are playtest starting points, not commitments.
 
+**Every fifth wave pays a milestone.** Clearing waves 5, 10, 15 …
+grants one shield charge plus a flat credit bonus (500 cr to start),
+announced in the wave banner (`MILESTONE WAVE 5 - SHIELD +500 CR`).
+The charge joins the shield pool and is kept until spent; the credits
+pay the idle ledger and survive a restart. Tuning lives at the end of
+`constants.py` (`MILESTONE_WAVE_INTERVAL`, `MILESTONE_SHIELD_CHARGES`,
+`MILESTONE_CREDIT_BONUS`).
+
 ## Persistence
 
 Everything rides in one shared file, `game_save.json` (written to the
