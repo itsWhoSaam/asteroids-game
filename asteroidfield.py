@@ -66,6 +66,17 @@ def wave_params(wave, mode=DIFFICULTY_DEFAULT):
     }
 
 
+def spawn_rng(seed):
+    """The RNG a run's spawn path draws from (daily challenge): a fresh
+    instance seeded from the challenge date for a daily run, the shared
+    module stream otherwise. Pure construction — a new seed always builds
+    a new generator, so a daily retry replays the same draws and no other
+    system's use of the module stream can perturb the sequence."""
+    if seed is None:
+        return random
+    return random.Random(seed)
+
+
 class AsteroidField(pygame.sprite.Sprite):
     edges = [
         [
@@ -90,10 +101,15 @@ class AsteroidField(pygame.sprite.Sprite):
         ],
     ]
 
-    def __init__(self, game):
+    def __init__(self, game, rng=None):
         pygame.sprite.Sprite.__init__(self, self.containers)
         # The wave lives on the Game (F2); the field reads it every update.
         self.game = game
+        # The spawn path draws from this RNG — the shared module stream by
+        # default, a seeded instance on a daily run (reseed, below). Same
+        # duck type either way: the module's functions and a Random
+        # instance expose the same draw calls.
+        self.rng = rng if rng is not None else random
         self.spawn_timer = 0.0
         # Asteroids spawned in the current wave. main()'s advance guard needs
         # this: an empty field counts as "cleared" only if the current wave
@@ -105,6 +121,14 @@ class AsteroidField(pygame.sprite.Sprite):
         """Reset the per-wave clock and the populated guard for a new wave."""
         self.spawn_timer = 0.0
         self.spawned_this_wave = 0
+
+    def reseed(self, seed=None):
+        """Point the spawn path at a fresh RNG (the daily challenge's seam,
+        the optional-kwargs precedent): seeded from the challenge date for
+        a daily run, back to the shared module stream for a normal one.
+        start_wave() resets the clock; this resets the draws, so a daily
+        retry replays the same spawn sequence."""
+        self.rng = spawn_rng(seed)
 
     def spawn(self, radius, position, velocity, cls=Asteroid):
         """Spawn one rock; the optional class kwarg (the handle_collisions
@@ -128,15 +152,18 @@ class AsteroidField(pygame.sprite.Sprite):
         if self.spawn_timer > params["spawn_interval"]:
             self.spawn_timer = 0
 
-            # spawn a new asteroid at a random edge
-            edge = random.choice(self.edges)
-            speed = random.randint(params["speed_min"], params["speed_max"])
+            # spawn a new asteroid at a random edge — every draw comes
+            # from the field's RNG (daily challenge): the seeded instance
+            # on a daily run replays this exact sequence per date, the
+            # shared stream otherwise.
+            edge = self.rng.choice(self.edges)
+            speed = self.rng.randint(params["speed_min"], params["speed_max"])
             velocity = edge[0] * speed
-            velocity = velocity.rotate(random.randint(-30, 30))
-            position = edge[1](random.uniform(0, 1))
-            kind = random.randint(1, ASTEROID_KINDS)
+            velocity = velocity.rotate(self.rng.randint(-30, 30))
+            position = edge[1](self.rng.uniform(0, 1))
+            kind = self.rng.randint(1, ASTEROID_KINDS)
             radius = ASTEROID_MIN_RADIUS * kind
-            if mine_spawn_rolls_in(random.random()):
+            if mine_spawn_rolls_in(self.rng.random()):
                 # A rare armed variant (Tier 3): the mine rides the rolled
                 # kind's radius and the rolled velocity — the variant
                 # changes the death, not the drift.

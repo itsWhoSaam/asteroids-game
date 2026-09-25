@@ -46,6 +46,7 @@ from achievements import Achievements, event_stats_from
 from asteroid import Asteroid, Boss, Mine, blast_victims, boss_tier, in_blast_radius
 from asteroidfield import AsteroidField
 from blackhole import BlackHole, BlackHoleScheduler, spawn_position as hole_position
+from challenge import daily_seed, daily_slug, utc_today
 from comicfx import Burst, build_background_layers, burst_word, spawn_burst
 from economy import Economy
 from drones import DroneBay, OfflineBanner, drone_dps
@@ -757,6 +758,18 @@ def restart_run(game, economy, field, banner, asteroids, *, saucers=None,
     game.restart()
     economy.end_run_effects()
     field.start_wave()
+    # Daily seeded challenge (Tier 3): both restart hooks land here (the
+    # game-over R and select_mode's launch), so the seed application lives
+    # beside start_wave's clock reset — a daily run draws from a fresh RNG
+    # seeded with the challenge date, so a retry replays the same spawn
+    # sequence, and a normal run draws from the shared stream. The date is
+    # stamped on the Game at launch, so a run spanning midnight records
+    # its best against the day it was actually seeded for.
+    game.daily_day = utc_today() if game.daily else None
+    field.reseed(daily_seed(game.daily_day) if game.daily else None)
+    if game.daily:
+        log_event("daily_run_started", date=daily_slug(game.daily_day),
+                  seed=daily_seed(game.daily_day))
     banner.show(game.wave)
     for clock in threat_clocks:
         clock.reset()
@@ -928,7 +941,10 @@ def render_world(screen, world, background, entities, fx, offset, game,
              volume=getattr(game, "volume", None),
              lives_pulse=warning.pulse if warning is not None else None,
              combo=game.combo, dash_timer=dash_timer,
-             magnet=player.magnet_timer if player is not None else None)
+             magnet=player.magnet_timer if player is not None else None,
+             # Duck-typed like volume above: FakeGame doubles predate the
+             # daily flag and the off state is the default.
+             daily=getattr(game, "daily", False))
 
 
 def main():
@@ -1101,6 +1117,12 @@ def main():
                     select_mode(
                         game, economy, asteroid_field, banner, asteroids, mode
                     )
+                elif event.key == pygame.K_d:
+                    # Daily challenge (Tier 3): the start/game-over flow's
+                    # toggle, beside the difficulty select. Playing frames
+                    # never reach this block — D is the rotate-right poll
+                    # inside a run — and a frozen run is still playing.
+                    game.toggle_daily()
                 elif event.key == pygame.K_q and game.state == "menu":
                     economy.save()
                     pygame.quit()
@@ -1239,8 +1261,10 @@ def main():
         shop.draw_powerups(screen)
         achievements.draw(screen)  # the top-center toast seat, under overlays
         if game.state == "menu":
-            # Tier 2: the difficulty select over the still, empty field.
-            draw_mode_menu(screen, game.mode, game.high_scores)
+            # Tier 2: the difficulty select over the still, empty field —
+            # with the daily challenge's D row and the day's best (Tier 3).
+            draw_mode_menu(screen, game.mode, game.high_scores,
+                           daily=game.daily, daily_best=game.daily_best)
         elif game.state == "game_over":
             draw_game_over(screen, game.score, new_high=game.new_high,
                            mode=game.mode, top_chain=game.combo.top,

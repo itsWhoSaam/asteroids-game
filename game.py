@@ -8,6 +8,7 @@ high_score_beaten event, and the save loader's read-modify-write contract
 (unknown keys ride along) untouched.
 """
 
+from challenge import daily_slug, load_daily_best, record_daily_score
 from constants import (
     DIFFICULTY_TABLE,
     PLAYER_DEATH_BURST_INTENSITY,
@@ -49,6 +50,10 @@ class Game:
         self.particles = particles
         self.shake = shake
         self._score = Score(save_path)
+        # The daily challenge records through the same file (Tier 3) — kept
+        # here so the game-over write lands where this Game's Score and the
+        # Economy ledger read, not some other process's repo-root save.
+        self.save_path = save_path
         # Tier 2 difficulty modes: the mode persists across runs (the save
         # merge carries it), so a fresh Game resumes the saved choice and
         # starts on its lives row. Lives apply at start and at restart().
@@ -82,6 +87,16 @@ class Game:
         # rebind it, or the ship would keep scoring into a dead run's counters.
         self.stats = RunStats()
         self.player.stats = self.stats
+        # Daily seeded challenge (Tier 3): the daily flag is selection
+        # state like the difficulty mode — toggled on the start/game-over
+        # flow, it lands at launch (restart_run stamps the challenge date
+        # and seeds the field). Session state, deliberately not persisted:
+        # a boot starts on the normal game. The day's best is cached here
+        # because the boot menu reads it every frame — one save read at
+        # construction, refreshed when a daily run records (game_over).
+        self.daily = False
+        self.daily_day = None
+        self._daily_best = load_daily_best(path=save_path)
 
     @property
     def score(self):
@@ -172,6 +187,28 @@ class Game:
         log_event("difficulty_selected", mode=mode)
         return self._score.mode
 
+    def toggle_daily(self):
+        """Flip the daily-challenge selection on the start/game-over flow
+        (Tier 3); True when it flipped.
+
+        The gate mirrors set_mode's: D means nothing mid-run — a live run
+        cannot become daily halfway through its seed, and 1/2/3 already
+        mean the shop keys there. The flag survives restart() like the
+        mode does (selection, not counters), so the game-over R replays
+        today's seeded run; D off on the game-over screen re-arms normal.
+        """
+        if self.state not in ("menu", "game_over"):
+            return False
+        self.daily = not self.daily
+        log_event("daily_toggled", on=self.daily)
+        return True
+
+    @property
+    def daily_best(self):
+        """The day's persisted best (daily challenge), as cached at boot
+        or the last recorded game over — the menu row's readout."""
+        return self._daily_best
+
     def add_score(self, points):
         """Points for a destroyed asteroid, through the F1 seam."""
         self._score.add_score(points)
@@ -242,6 +279,19 @@ class Game:
         # would cover the R/Q prompt the same way, so it closes here too.
         self.paused = False
         self.help_open = False
+        # Daily seeded challenge (Tier 3): a finished daily run offers its
+        # score to the challenge date's best — the run's own date (stamped
+        # at launch), so a run spanning midnight records against the day it
+        # was seeded for. The merge write touches only the daily_best key.
+        if self.daily and self.daily_day is not None:
+            if record_daily_score(self.daily_day, self._score.current,
+                                  path=self.save_path):
+                self._daily_best = self._score.current
+                log_event(
+                    "daily_best",
+                    date=daily_slug(self.daily_day),
+                    score=self._score.current,
+                )
         log_event("game_over", score=self.score, high_score=self.high_score)
         sound.play(sound.SFX_GAME_OVER)  # F6: the run winding down
 
