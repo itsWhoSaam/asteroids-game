@@ -41,6 +41,10 @@ class Player(CircleShape):
         self.powerup_timers = {}
         self.shield_hits = 0
         self.rotation = 0
+        # Run-stat sink (run-stats PR): Game injects the run's counters at
+        # construction — the player is built before the Game exists, so the
+        # attribute starts None and every recorder call guards on it.
+        self.stats = None
 
     @property
     def invulnerable(self):
@@ -195,6 +199,11 @@ class Player(CircleShape):
             pygame.Vector2(0, 1).rotate(self.rotation + spread_degrees)
             * PLAYER_SHOOT_SPEED
         )
+        # Run stats (run-stats PR): one bullet left the ship. Counted here,
+        # per bullet — a TRIPLE volley fires three, so the summary's
+        # hit/fired accuracy can never pass 100%.
+        if self.stats is not None:
+            self.stats.record_shot()
 
     def move (self, dt):
         unit_vector = pygame.Vector2(0, 1)

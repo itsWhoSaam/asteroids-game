@@ -19,6 +19,7 @@ from hud import SAVE_PATH, Score
 from logger import log_event
 import sound
 from particles import burst
+from stats import RunStats
 
 
 class Game:
@@ -53,6 +54,12 @@ class Game:
         # (see toggle_help), and cleared by game over and restart so a stale
         # list never covers another screen's prompt.
         self.help_open = False
+        # Run-stat counters (run-stats PR): per-run, never saved. The player
+        # records against the run's one instance — injected here, the one
+        # place both exist — so restart() must reset it in place, never
+        # rebind it, or the ship would keep scoring into a dead run's counters.
+        self.stats = RunStats()
+        self.player.stats = self.stats
 
     @property
     def score(self):
@@ -171,6 +178,10 @@ class Game:
     def restart(self):
         """Full reset: counters to wave-1 start AND world cleared."""
         self._score.reset()
+        # Run stats (run-stats PR): run-scoped counters die with the run,
+        # zeroed in place — both restart hooks land here, and the player
+        # holds this very instance.
+        self.stats.reset()
         self.lives = PLAYER_START_LIVES
         self.wave = 1
         self.state = "playing"

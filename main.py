@@ -41,6 +41,7 @@ from hud import (
     draw_help,
     draw_hud,
     draw_pause,
+    draw_run_summary,
     hud_font,
     points_for,
 )
@@ -49,6 +50,7 @@ from particles import Particle, Shake, burst
 from player import Player
 from powerups import PowerUp, drops_powerup, pick_type
 from shop import Shop
+from stats import SOURCE_IDLE
 import sound
 from shot import Shot
 
@@ -81,6 +83,13 @@ def handle_collisions(asteroids, shots, player1, game, powerups, shake=None):
                 continue
             if asteroid.collides_with(shot):
                 log_event("asteroid_shot")
+                # Run stats (run-stats PR): a player shot connected — turret
+                # shots ride the same pipeline tagged from_drone, and stay
+                # out of the accuracy read. The kill also re-attributes the
+                # rock below, so a chip history cannot turn a shot kill into
+                # a click payout.
+                if not shot.from_drone:
+                    game.stats.record_hit()
                 # V4: the word pops first, so it joins fx ahead of the
                 # debris — the burst polygon sits behind the particle cloud
                 # it salutes. POW! on large, BOOM! on medium, small stays
@@ -98,6 +107,7 @@ def handle_collisions(asteroids, shots, player1, game, powerups, shake=None):
                     shake.kick(
                         SHAKE_LARGE_ASTEROID * asteroid.radius / ASTEROID_MAX_RADIUS
                     )
+                asteroid.killed_by = SOURCE_IDLE  # run stats: the shot killed it
                 asteroid.split()
                 shot.kill()
                 points = points_for(asteroid.radius)
@@ -178,6 +188,7 @@ def maybe_advance_wave(game, field, banner, player=None, economy=None):
     if field.spawned_this_wave == 0 or len(game.asteroids) > 0:
         return
     game.wave += 1
+    game.stats.record_wave_cleared()  # run stats: a wave survived (run-stats PR)
     field.start_wave()  # fresh spawn clock and populated guard for the new wave
     reward = milestone_reward(game.wave)
     if reward is not None:
@@ -296,7 +307,50 @@ def nuke_field(asteroids):
     while len(asteroids) > 0:
         for rock in list(asteroids):
             burst(rock.position, rock.radius)
+            # Run stats: the nuke killed these rocks, not any earlier chips
+            # on them — re-attribute before the split pays the diff.
+            rock.killed_by = SOURCE_IDLE
             rock.split()
+
+
+def mint_destructions(previous, current, economy, stats):
+    """The idle mint poll: every wreck the frame diff finds pays the ledger
+    exactly once — the one destruction→mint path (idle core).
+
+    Returns (wreck, payout) pairs so the caller floats '+N' labels at the
+    death sites. The run stats record here because the diff is the one
+    place every destruction source surfaces (shots, clicks, drones, nukes):
+    a rock lands in its size tier, and its payout in the click or idle
+    bucket by the killer the wreck reports (run-stats PR).
+    """
+    paid = []
+    for wreck in destroyed_asteroids(previous, current):
+        payout = economy.mint(wreck.radius)
+        log_event("credit_minted", amount=payout)
+        stats.record_destroyed(wreck.radius)
+        stats.record_credits(payout, wreck.killed_by)
+        paid.append((wreck, payout))
+    return paid
+
+
+def restart_run(game, economy, field, banner, asteroids):
+    """The R-key full restart — the game-over screen and the pause overlay
+    both land here (F2, Tier 1), so this is the run-state reset's second
+    hook beside Game.restart itself.
+
+    A cleared field is not player destruction: every rock is flagged as a
+    cull so the diff poll never mints for the restart. Game.restart resets
+    the run — score, lives, wave, and the run stats in place — bought timed
+    effects die with the run (the paid use is consumed), and the field
+    forgets the old wave or its populated guard would see an empty fresh
+    field and tick to wave 2 before anything spawns.
+    """
+    for asteroid in asteroids:
+        asteroid.despawned = True
+    game.restart()
+    economy.end_run_effects()
+    field.start_wave()
+    banner.show(game.wave)
 
 
 _float_font_cache = None
@@ -537,19 +591,7 @@ def main():
                 # restart unpauses through Game.restart, and quit saves
                 # exactly like the game-over path.
                 if event.key == pygame.K_r:
-                    # A cleared field is not player destruction: flag every
-                    # rock as a cull so the diff poll never mints for restart.
-                    for asteroid in asteroids:
-                        asteroid.despawned = True
-                    game.restart()
-                    # Bought timed effects die with the run: the paid
-                    # use is consumed, the new run starts clean.
-                    economy.end_run_effects()
-                    # The field forgets the old wave too, or its populated
-                    # guard would see an empty field and tick to wave 2
-                    # before the fresh run spawns anything.
-                    asteroid_field.start_wave()
-                    banner.show(game.wave)
+                    restart_run(game, economy, asteroid_field, banner, asteroids)
                 elif event.key == pygame.K_q:
                     economy.save()
                     pygame.quit()
@@ -605,10 +647,10 @@ def main():
         if not game.paused:
             # Destruction → credits: diff this frame's field against the
             # last, mint once per wreck, float a '+N' over the wreck.
-            # Frozen frames change no groups, so the poll holds too.
-            for wreck in destroyed_asteroids(prev_asteroids, asteroids):
-                payout = economy.mint(wreck.radius)
-                log_event("credit_minted", amount=payout)
+            # Frozen frames change no groups, so the poll holds too. The
+            # run stats record inside the same poll (run-stats PR).
+            for wreck, payout in mint_destructions(
+                    prev_asteroids, asteroids, economy, game.stats):
                 style = popup_style("credits", payout)
                 FloatingText(
                     wreck.position.x,
@@ -639,6 +681,9 @@ def main():
         shop.draw_powerups(screen)
         if game.state == "game_over":
             draw_game_over(screen, game.score, new_high=game.new_high)
+            # Run stats (run-stats PR): the run's counters, in a summary
+            # block under the game-over prompt.
+            draw_run_summary(screen, game.stats)
         elif game.paused:
             draw_pause(screen)  # the frozen world dims under the prompt
         if game.help_open:
