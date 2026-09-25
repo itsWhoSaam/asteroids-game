@@ -36,6 +36,7 @@ The game loops at 60 FPS until the window QUIT event (or Q at the game-over scre
   - `uv run python .obvious/evidence/proof_f6.py` — F6 evidence: unmuted/muted HUD pair (MUTED indicator top-right after a simulated M press) to `/tmp/obv-evidence/`, with mixer format, SFX table, and persisted save asserted.
   - `uv run python .obvious/evidence/proof_v1.py` — visual V1 evidence: comic-palette before/after PNGs (the before frame is a palette regrade back to white-on-black) to `/tmp/obv-evidence/`, with paper/ship/asteroid pixel self-checks asserted.
   - `uv run python .obvious/evidence/proof_v4.py` — visual V4 evidence: burst frame + lifecycle strip PNGs to `/tmp/obv-evidence/`, with word-tier, 4-text cap, fx-over-entities z-order, cache-flatness, and composite-budget self-checks asserted.
+  - `uv run python .obvious/evidence/proof_v5.py` — visual V5 evidence: comic-HUD hero frame, game-over caption panels, banner fade strip, and audio-tag corner PNGs to `/tmp/obv-evidence/`, with panel-family pixel, MUTED-slot, fade-dimming, glyph-cache, and composite-budget self-checks asserted.
   - `uv run python -m tests._balance_sim` — the ten-minute balance simulation of the main loop (income vs field density per minute, purchase curve, nuke scenario); `tests/test_balance.py` pins the fast gates.
 
 ## Codebase Map
@@ -49,7 +50,7 @@ Flat, single-app repo — all source at root (depth ≤ 2, no sub-apps):
 | `game.py` | `Game` — run state (score, lives, wave, phase, pause flag); respawn/invulnerability grants, game-over and full-restart resets (engagement F2) |
 | `constants.py` | Tunables: screen 1280x720, player, asteroid, shot parameters; the `PALETTE` table (visual V1) — the single place color lives, every entity draw and fill resolves through it |
 | `circleshape.py` | `CircleShape` base class (position, velocity, radius, `collides_with`) |
-| `comicfx.py` | Procedural comic FX (no assets, no dependencies): `chromatic_circle`/`chromatic_polygon` ink stacks on entities (V2); `build_background_layers()` pre-renders the action-line + halftone pair once (V4) — main blits the lines into the world under the entities and the halftone print at screen level, entity draw functions never paint background; `Burst` onomatopoeia sprite (jagged polygon + POW!/BOOM!/ZAP! pop-and-fade, 4-text cap, `(word, color, size)` cache shared with pickups/banner) |
+| `comicfx.py` | Procedural comic FX (no assets, no dependencies): `chromatic_circle`/`chromatic_polygon` ink stacks on entities (V2); `build_background_layers()` pre-renders the action-line + halftone pair once (V4) — main blits the lines into the world under the entities and the halftone print at screen level, entity draw functions never paint background; `build_panel()` halftone plates with ink borders (V5); `cached_text`/`cached_rotated_text` — the shared `(text, color, size)` render cache and its tilted-glyph path (per-frame alpha bands scale into per-pixel coverage via BLEND_RGBA_MULT); `Burst` onomatopoeia sprite (jagged polygon + POW!/BOOM!/ZAP! pop-and-fade, 4-text cap) |
 | `player.py` | `Player` — triangle ship, rotate/move/shoot |
 | `asteroid.py` | `Asteroid` — movement, `split()` on hit |
 | `asteroidfield.py` | `AsteroidField` — spawns asteroids from screen edges on a timer; cadence and speed band come from the pure `wave_params(wave)` (engagement F3) |
@@ -57,7 +58,7 @@ Flat, single-app repo — all source at root (depth ≤ 2, no sub-apps):
 | `particles.py` | `Particle` debris + `Shake` — pure `burst_count` sizing, `burst()` spawner wired at the sweep's destruction site and in `Game.player_hit`; shake decays exponentially and offsets the draw origin only (engagement F5) |
 | `shot.py` | `Shot` — player bullets |
 | `sound.py` | Procedural SFX — stdlib `array`/`math` envelopes in `pygame.mixer.Sound`, built at startup; `play()`/`play_explosion()` degrade to a silent no-op on any mixer failure; mute state set via `set_muted` (engagement F6) |
-| `hud.py` | `Score` — run score + persistent high score (`game_save.json`), `points_for()` size table, `draw_hud()` overlay, `draw_game_over()` overlay, `WaveBanner` flash (engagement F3) |
+| `hud.py` | `Score` — run score + persistent high score (`game_save.json`), `points_for()` size table, `draw_hud()` overlay (yellow halftone panel + ink border, V5), `draw_game_over()` caption panels, `WaveBanner` flash — tilted cached glyphs, quantized per-frame alpha fade (engagement F3, visual V5) |
 | `logger.py` | `log_state()` / `log_event()` — JSONL state & event logging to repo root |
 | `game_events.jsonl` | Committed event log from a prior run (runtime artifact) |
 | `README.md` | Controls, idle loop, persistence, and run/test docs |
