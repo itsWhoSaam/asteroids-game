@@ -7,6 +7,7 @@ at CD rate), the tier routing, and the mute persistence through the save
 loader.
 """
 
+import array
 import json
 
 import pygame
@@ -16,6 +17,8 @@ import sound
 from asteroid import Asteroid
 from asteroidfield import AsteroidField
 from constants import (
+    MUSIC_GAIN,
+    MUSIC_LOOP_SECONDS,
     PALETTE,
     SFX_CHANNELS,
     SFX_COMBO_BREAK,
@@ -57,6 +60,11 @@ def fresh_sound(monkeypatch):
     """A pristine sound module per test; pygame (font + mixer) ready."""
     monkeypatch.setattr(sound, "_muted", False)
     monkeypatch.setattr(sound, "_sounds", {})
+    # The loop's gate state resets per test, but _music does NOT: the
+    # ~0.4 s ambient render builds once per process — a rebuilt SFX table
+    # keeps the already-built loop (init() guards the build on it).
+    monkeypatch.setattr(sound, "_music_on", False)
+    monkeypatch.setattr(sound, "_music_playing", False)
     pygame.init()
     sound.init()
 
@@ -553,3 +561,203 @@ def test_extra_cue_call_sites_degrade_on_broken_mixer(monkeypatch, tmp_path):
 
     assert game.wave == 2
     assert sound._sounds == {}  # still silent for the rest of the run
+
+
+# --- ambient music loop (Tier 3): the bed under gameplay -----------------------
+
+
+class MusicRecorder:
+    """A loop stand-in that logs gain, play, and stop calls."""
+
+    def __init__(self):
+        self.gain = None
+        self.play_calls = 0
+        self.stops = 0
+
+    def set_volume(self, gain):
+        self.gain = gain
+
+    def play(self, loops=0):
+        self.play_calls += 1
+
+    def stop(self):
+        self.stops += 1
+
+
+class DyingMixerLoop:
+    """A loop stand-in whose mixer died mid-run: every call raises."""
+
+    def set_volume(self, gain):
+        raise pygame.error("mixer died")
+
+    def play(self, loops=0):
+        raise pygame.error("mixer died")
+
+    def stop(self):
+        raise pygame.error("mixer died")
+
+
+def wire_music(monkeypatch, recorder):
+    """Swap a stand-in in as the module's loop with clean gate state."""
+    monkeypatch.setattr(sound, "_music", recorder)
+    monkeypatch.setattr(sound, "_music_on", False)
+    monkeypatch.setattr(sound, "_music_playing", False)
+    return recorder
+
+
+def test_ambient_loop_builds_deterministically():
+    """Pure math, no RNG: rebuilding the loop reproduces the exact bytes —
+    the same bed every run and in tests."""
+    assert (
+        sound.build_ambient_loop().get_raw()
+        == sound.build_ambient_loop().get_raw()
+    )
+
+
+def test_ambient_loop_is_a_long_loop_in_mixer_format():
+    """The bed is a real mixer-format Sound spanning the documented loop
+    length — far longer than any one-shot cue."""
+    built = sound.build_ambient_loop()
+    assert isinstance(built, pygame.mixer.Sound)
+    raw = built.get_raw()
+    bytes_per_frame = SFX_CHANNELS * 2  # stereo, signed 16-bit
+    assert len(raw) % bytes_per_frame == 0
+    duration = len(raw) / bytes_per_frame / SFX_SAMPLE_RATE
+    assert duration == pytest.approx(MUSIC_LOOP_SECONDS, abs=0.01)
+    assert duration > 1.5  # every cue tops out well below the bed
+
+
+def test_ambient_loop_wraps_seamlessly():
+    """Loop-clean construction: the sample crossing the seam steps by a
+    tone's one-sample slope — a click at the wrap would gap thousands."""
+    frames = array.array("h")
+    frames.frombytes(sound.build_ambient_loop().get_raw())
+    left = frames[::2]  # the left channel
+    assert abs(left[0] - left[-1]) < 800  # int16 units: a step, not a tear
+
+
+def test_ambient_loop_is_an_audible_bed_with_headroom():
+    """The bed actually sounds — thousands of int16 units at peak — but
+    never clips: the voices sum with room to spare."""
+    frames = array.array("h")
+    frames.frombytes(sound.build_ambient_loop().get_raw())
+    peak = max(abs(sample) for sample in frames)
+    assert 5000 < peak < 30000
+
+
+def test_music_gain_scales_with_the_master_level():
+    """Pure: the bed's gain is the SFX scale dropped by MUSIC_GAIN —
+    full level at 100%, half at 50%, silence at 0."""
+    assert sound.music_gain(100) == pytest.approx(MUSIC_GAIN)
+    assert sound.music_gain(50) == pytest.approx(MUSIC_GAIN / 2)
+    assert sound.music_gain(0) == 0.0
+
+
+def test_update_music_starts_the_loop_once_and_keeps_it(monkeypatch):
+    """The per-frame gate is idempotent: gameplay frames after the first
+    never restart the loop, and the gain rides the master level."""
+    recorder = wire_music(monkeypatch, MusicRecorder())
+    sound.set_volume(100)
+
+    sound.update_music(True)
+    sound.update_music(True)  # a later frame: already looping
+
+    assert recorder.play_calls == 1
+    assert recorder.gain == pytest.approx(sound.music_gain(100))
+
+
+def test_update_music_stops_on_menu_and_game_over(monkeypatch):
+    """Leaving gameplay stops the loop once; further idle frames are
+    no-ops — the stop is as idempotent as the start."""
+    recorder = wire_music(monkeypatch, MusicRecorder())
+    sound.update_music(True)
+
+    sound.update_music(False)  # game over / the menu
+    sound.update_music(False)  # later frames change nothing
+
+    assert recorder.stops == 1
+    assert recorder.play_calls == 1
+
+
+def test_mute_silences_the_loop_and_preserves_the_level(monkeypatch):
+    """M mid-run stops the bed; unmuting brings it back at the unchanged
+    master level — mute overrides audibly, never rewrites the setting."""
+    recorder = wire_music(monkeypatch, MusicRecorder())
+    sound.set_volume(100)
+    sound.update_music(True)
+    sound.set_volume(70)  # the level steps while it plays
+
+    sound.set_muted(True)
+    assert recorder.stops == 1
+
+    sound.set_muted(False)
+    assert recorder.play_calls == 2  # resumed, not rebuilt or restarted
+    assert recorder.gain == pytest.approx(sound.music_gain(70))
+
+
+def test_volume_step_rescales_the_playing_loop(monkeypatch):
+    """[ / ] during gameplay re-scale the bed's gain live — the loop keeps
+    playing through the step instead of restarting."""
+    recorder = wire_music(monkeypatch, MusicRecorder())
+    sound.update_music(True)
+
+    sound.set_volume(50)
+
+    assert recorder.play_calls == 1  # still the same loop
+    assert recorder.gain == pytest.approx(sound.music_gain(50))
+
+
+def test_muted_gameplay_never_starts_the_loop(monkeypatch):
+    """Booting muted: the gate opens but the switch keeps the bed silent —
+    starting is a no-op while the mute holds."""
+    recorder = wire_music(monkeypatch, MusicRecorder())
+    sound.set_muted(True)
+
+    sound.update_music(True)
+
+    assert recorder.play_calls == 0
+
+
+def test_update_music_drives_the_real_dummy_mixer():
+    """Through a real (dummy-driver) mixer: the gate starts the loop on a
+    live channel and stops it clean — the recorder tests' contract holds
+    against actual pygame playback, not just stand-ins."""
+    sound.set_volume(100)
+
+    sound.update_music(True)
+    assert sound._music.get_num_channels() > 0
+
+    sound.update_music(False)
+    assert sound._music.get_num_channels() == 0
+
+
+def test_music_degrades_when_the_mixer_is_missing(monkeypatch, capsys):
+    """A mixer that never came up: init stays a silent no-op — the loop
+    is None, and the per-frame gate and the mute switch never crash."""
+    def broken(*args, **kwargs):
+        raise pygame.error("no audio device")
+
+    monkeypatch.setattr(pygame.mixer, "get_init", lambda: None)
+    monkeypatch.setattr(pygame.mixer, "init", broken)
+    sound._sounds = {}
+    monkeypatch.setattr(sound, "_music", None)  # simulate the very first init
+    sound.init()  # must not raise
+
+    assert sound._music is None
+    sound.update_music(True)  # the per-frame gate: no crash
+    sound.set_muted(False)  # the switch path: no crash
+
+
+def test_music_degrades_midrun_on_a_dying_mixer(monkeypatch, capsys):
+    """The mixer dying mid-run: the first refresh warns once and drops the
+    loop; every later gate call is a silent no-op — never a crash, never
+    a second warning."""
+    recorder = wire_music(monkeypatch, DyingMixerLoop())
+    sound.set_volume(100)
+
+    sound.update_music(True)  # the failure
+    sound.update_music(True)  # later frames: silent no-ops
+    sound.set_muted(False)
+
+    assert sound._music is None
+    assert capsys.readouterr().err.count("music failed") == 1
