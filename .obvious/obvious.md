@@ -30,10 +30,23 @@ Node 20 + TypeScript (strict, per-package tsconfigs for `shared/`, `server/`, `w
 npm ci                # install (package-lock.json is committed)
 npm run typecheck     # tsc --noEmit across shared/, server/, web/
 npm test              # vitest run
-npm run build         # esbuild web/ -> dist/ (placeholder page for now)
+npm run build         # esbuild: web/ -> dist/ (client) + server/ -> dist-server/ (host)
+npm start             # run the built room server (PORT env, default 3000)
 ```
 
 The desktop Python build is untouched by the web port; `uv run pytest` remains the authoritative gate. Web checks live in the `web` job of `.github/workflows/ci.yml` alongside `pytest`, which now also triggers on the `feat/multiplayer-web-port` release branch.
+
+## Rooms Server (server/)
+
+The authoritative multiplayer host — Node + `ws`, memory-only rooms, one origin:
+
+- `server/rooms.ts` — `RoomHub` (rooms keyed by 4-char codes, cap 4) and `Room` (seats, fixed 60 Hz tick advancing the shared `step()`, ~20 Hz snapshots every 3rd tick with per-client input-seq ack, 10 s disconnect grace before ship removal). Rooms vanish when their last seat expires; nothing persists.
+- `server/wire.ts` — the runtime gate: untrusted frames → typed `ClientMsg` or dropped. Malformed input never reaches the sim.
+- `server/gateway.ts` — the only module importing `ws`; adapts sockets to `RoomSocket` on the `/ws` path.
+- `server/static.ts` — serves the built client from `dist/` on the same port (traversal-guarded).
+- `server/index.ts` — entry: `npm run build && npm start` (client from `dist/` + WS at `/ws` on one port).
+- Tests (`server/rooms.test.ts`, `server/static.test.ts`) run a real server on an ephemeral port with fake WS clients; the hub accepts `autoTick: false` so tests drive ticks deterministically.
+
 
 ## Local Verification
 
