@@ -21,27 +21,38 @@ from constants import (
     POWERUP_DROP_CHANCE,
     POWERUP_DRIFT_SPEED,
     POWERUP_FONT_SIZE,
+    POWERUP_MAGNET_ACCELERATION,
+    POWERUP_MAGNET_MAX_SPEED,
+    POWERUP_MAGNET_RADIUS,
     POWERUP_RADIUS,
 )
 
 
 class PowerUpType(enum.StrEnum):
-    """The three pickups. Values key the constants tables (F4)."""
+    """The four pickups. Values key the constants tables (F4)."""
 
     SHIELD = "shield"
     RAPID = "rapid"
     TRIPLE = "triple"
+    MAGNET = "magnet"
 
 
 # Uniform selection pool; this order fixes the pick_type roll mapping.
-POWERUP_TYPES = (PowerUpType.SHIELD, PowerUpType.RAPID, PowerUpType.TRIPLE)
+# MAGNET appends at the end so every existing type keeps its roll band.
+POWERUP_TYPES = (
+    PowerUpType.SHIELD,
+    PowerUpType.RAPID,
+    PowerUpType.TRIPLE,
+    PowerUpType.MAGNET,
+)
 
 # Per-kind palette keys (visual V1): each pickup keeps its effect identity
-# color — SHIELD cyan, RAPID orange, TRIPLE magenta.
+# color — SHIELD cyan, RAPID orange, TRIPLE magenta, MAGNET green.
 POWERUP_COLOR_KEYS = {
     PowerUpType.SHIELD: "powerup_shield",
     PowerUpType.RAPID: "powerup_rapid",
     PowerUpType.TRIPLE: "powerup_triple",
+    PowerUpType.MAGNET: "powerup_magnet",
 }
 
 
@@ -66,6 +77,35 @@ def pick_type(roll):
     POWERUP_TYPES. Clamped so even a sloppy 1.0 roll picks a real type."""
     index = min(int(roll * len(POWERUP_TYPES)), len(POWERUP_TYPES) - 1)
     return POWERUP_TYPES[index]
+
+
+def magnet_pull(position, attractor, velocity, radius=POWERUP_MAGNET_RADIUS,
+                strength=POWERUP_MAGNET_ACCELERATION,
+                max_speed=POWERUP_MAGNET_MAX_SPEED, dt=1 / 60):
+    """Pure magnet step (Tier 3): the velocity a body under the pull has
+    after this frame.
+
+    Accelerates toward the attractor, eased linearly from full strength at
+    its center to zero at the rim — a body just inside the band barely
+    feels the field, one closing in pulls hard. The cap bounds the total
+    speed so the grab can never sling a body past the ship. A body at or
+    beyond the radius (the boundary rides the no-pull side, like the drop
+    roll's strict `<`), or exactly on the attractor where direction is
+    undefined, keeps its velocity untouched. Force, not teleport: the
+    position is never read for mutation — the caller integrates the
+    returned velocity with its own update.
+
+    All arguments are pygame.Vector2-compatible; the return is a Vector2.
+    """
+    offset = attractor - position
+    distance = offset.length()
+    if distance >= radius or distance <= 0:
+        return pygame.Vector2(velocity)
+    falloff = 1.0 - distance / radius
+    pulled = velocity + offset.normalize() * (strength * falloff * dt)
+    if pulled.length() > max_speed:
+        pulled = pulled * (max_speed / pulled.length())
+    return pulled
 
 
 class PowerUp(CircleShape):

@@ -479,3 +479,24 @@ TOAST_SECONDS = 3.0        # s a toast owns its seat, slide in+out included
 TOAST_SLIDE_SECONDS = 0.4  # s of slide-in, mirrored by the slide-out
 TOAST_SEAT_Y = 64          # px from the top edge where a seated toast rests
 TOAST_FONT_SIZE = 24       # the help list's dense size — the V5 panel family
+
+
+# --- Magnet powerup (Tier 3) --------------------------------------------------
+# A fourth drop in the F4 pool: for its duration the ship carries a tractor
+# field that bends nearby pullables' velocity toward it — drifting pickups
+# first, credit floats second (only the yellow +N kind; points popups and
+# shop notices hold their line). The pull is a force, not a teleport: it
+# accelerates the body it grabs, speed-capped, and a released body keeps
+# whatever velocity it gained. Strictly a drop effect — the bought-powerup
+# system (keys 7–0, Economy) has no magnet and this block never reads it.
+#
+# The two registrations below APPEND keys to tables defined further up
+# instead of editing those literals in place — the append-only constants
+# discipline: new features add sections at the end of this file, never
+# reorder or rewrite existing ones.
+PALETTE["powerup_magnet"] = (126, 217, 87)  # leaf green — no effect owns green yet
+POWERUP_DURATION_S["magnet"] = 8.0
+
+POWERUP_MAGNET_RADIUS = 280.0        # px — the attraction band around the ship
+POWERUP_MAGNET_ACCELERATION = 300.0  # px/s² at the ship, easing to 0 at the rim
+POWERUP_MAGNET_MAX_SPEED = 420.0     # px/s cap on a body while it is under the pull

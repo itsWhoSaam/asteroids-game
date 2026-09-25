@@ -105,6 +105,17 @@ pay the idle ledger and survive a restart. Tuning lives at the end of
 `constants.py` (`MILESTONE_WAVE_INTERVAL`, `MILESTONE_SHIELD_CHARGES`,
 `MILESTONE_CREDIT_BONUS`).
 
+## Timed drops
+
+Destroying a non-small rock has a 15% chance to drop a timed pickup —
+**SHIELD** absorbs one hit, **RAPID** cuts the shot cooldown ×0.4,
+**TRIPLE** fires a three-way spread, and **MAGNET** bends drifting
+pickups and credit floats toward the ship (a force on their velocity,
+never a teleport — closer bodies pull harder, capped so nothing slams
+past the hull). Each lasts 8 seconds; an active magnet shows a
+`MAGNET Ns` tag top-right. Tuning lives at the end of `constants.py`
+(`POWERUP_*`, including `POWERUP_MAGNET_*`).
+
 ## Persistence
 
 Everything rides in one shared file, `game_save.json` (written to the
