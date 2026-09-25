@@ -125,16 +125,16 @@ pygame.image.save(strip, f"{OUT}/proof_cracks.png")
 # and eighteen read 18/24 — stage 3, six clicks from the split. (A tier-2
 # rock dies on its sixth click, so its stage-3 window holds exactly one.)
 wire_asteroids()  # alive() needs the rocks in groups for take_chip
-deepen = pygame.Surface((CELL + 120, 760))
+deepen = pygame.Surface((760, 760))
 deepen.fill(PAPER)
-rock = Asteroid((CELL + 120) / 2, 330, 150)
+rock = Asteroid(760 / 2, 330, 150)
 rock.crack_seed = 11
 
 for _ in range(6):  # 6/24 of the threshold → first hairline pair
     assert rock.take_chip(CLICK_DAMAGE_BASE) is False
 assert crack_stage(rock.chip_damage, rock.radius) == 1
 rock.draw(deepen)
-label(deepen, "6 CLICKS — STAGE 1", ((CELL + 120) / 2, 690))
+label(deepen, "6 CLICKS — STAGE 1", (380, 690))
 frame_a_ink = interior_ink(deepen, rock.position, rock.radius)
 pygame.image.save(deepen, f"{OUT}/proof_cracks_deepen_a.png")
 
@@ -143,7 +143,7 @@ for _ in range(12):  # 18/24 → past the 0.75 mark, six clicks from the split
 assert crack_stage(rock.chip_damage, rock.radius) == 3
 deepen.fill(PAPER)  # fresh paper: frame B must stand alone, not over frame A
 rock.draw(deepen)
-label(deepen, "18 CLICKS — STAGE 3", ((CELL + 120) / 2, 690))
+label(deepen, "18 CLICKS — STAGE 3", (380, 690))
 frame_b_ink = interior_ink(deepen, rock.position, rock.radius)
 pygame.image.save(deepen, f"{OUT}/proof_cracks_deepen_b.png")
 
