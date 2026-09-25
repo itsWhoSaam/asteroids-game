@@ -35,6 +35,7 @@ the next hit is fatal.
 | Mouse click | Chip the rock under the cursor — the clicker verb |
 | `1`–`4` | Buy shop upgrades: Nanoblade, Fire-rate, Income, Drones (during a run) |
 | `1`/`2`/`3` | Pick Easy / Normal / Hard on the start menu or the game-over screen — the choice launches the run and persists |
+| `D` | Toggle the daily challenge on the start menu or the game-over screen — the next launch runs the day's seeded run |
 | `7`–`0` | Fire bought powerups: Gold Rush, Nuke, Overdrive, Chrono |
 | `R` | Restart (at game over, or from the pause overlay) |
 | `Q` | Quit (at game over, or from the pause overlay) |
@@ -62,6 +63,21 @@ are tracked **per mode** (`high_score_easy` / `_normal` / `_hard`); the
 legacy `high_score` key keeps its meaning as the overall best and still
 migrates old saves into Normal's record. The choice persists and the
 menu marks it (`< saved`) on the next boot.
+
+## Daily challenge
+
+The **D** key on the start menu or the game-over screen toggles the
+daily challenge — the menu shows the mode's gold `DAILY CHALLENGE`
+row and the next launch (a mode pick, or `R` at game over) starts the
+seeded run. The run plays exactly like the mode it launched in, with
+two differences: the asteroid spawns are **seeded from the UTC calendar
+date** (`YYYYMMDD`), so the same day always rolls the same spawn
+sequence — timing, positions, velocities, sizes, mines — for everyone,
+and a run's best score is kept **per date** (`daily_best` in
+`game_save.json`). The HUD carries a small gold `DAILY CHALLENGE` tag
+for the whole run; the game-over prompt shows `D daily` so the toggle
+is discoverable where the run ends. Toggling `D` off returns the next
+launch to the normal shared-stream spawns.
 
 ## The idle loop
 
@@ -198,6 +214,8 @@ working directory):
 - `high_score_easy` / `high_score_normal` / `high_score_hard` — per-mode
   bests (a mode's key appears the first time that mode scores)
 - `difficulty` — the selected mode for the next run
+- `daily_best` — the daily challenge's best score per date
+  (`{"YYYY-MM-DD": score}`)
 - `muted` — sound preference
 - `volume` — master level 0–100 (`[` / `]` step it)
 - `idle_credits`, `idle_levels`, `idle_powerup_uses`, `idle_last_seen` —

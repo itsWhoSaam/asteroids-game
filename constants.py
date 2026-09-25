@@ -749,3 +749,23 @@ GRAZE_BAND_PX = 24.0    # px beyond the collision radius that still pays
 GRAZE_MIN_SPEED = 50.0  # px/s — both bodies must move at least this fast
 GRAZE_POINTS = 25       # the small score bonus, score-only (never credits)
 GRAZE_COOLDOWN_S = 3.0  # per-pair re-arm time after a paid graze
+
+
+# --- Daily seeded challenge (Tier 3) -------------------------------------------
+# One run a day whose asteroid spawns are identical for everyone: launching a
+# daily run points the field's spawn path at an RNG seeded from the UTC
+# calendar date (daily_seed's YYYYMMDD), so the same day always rolls the
+# same spawn sequence — timing, positions, velocities, sizes. The day's best
+# score persists per date in game_save.json under one dict key, written
+# through hud's read-modify-write merge — the achievements precedent — so no
+# neighbor key (high_score, idle_*, muted) is ever erased. The mode toggles
+# on the start/game-over flow, beside the difficulty select.
+DAILY_SAVE_KEY = "daily_best"   # game_save.json key: {"YYYY-MM-DD": best}
+DAILY_KEY_LABEL = "D"           # the toggle key on the start/game-over flow
+DAILY_TAG_ROW = 2               # top-right HUD row: under the audio tags and MAGNET
+
+# The tag's gold — a new palette entry appended here (the magnet and mine
+# precedents: append-only palette growth, never editing the literals in
+# place). Gold reads as the event/score family, apart from the magnet's
+# green and the hostile red.
+PALETTE["daily_gold"] = (243, 195, 66)

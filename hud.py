@@ -32,6 +32,8 @@ from constants import (
     COMBO_STEP,
     COMBO_WINDOW_SECONDS,
     DASH_COOLING_COLOR,
+    DAILY_KEY_LABEL,
+    DAILY_TAG_ROW,
     DIFFICULTY_DEFAULT,
     DIFFICULTY_KEY_LABELS,
     DIFFICULTY_MODES,
@@ -496,7 +498,8 @@ class LowLivesWarning:
 
 
 def draw_hud(screen, score, lives=0, wave=0, muted=False, volume=None,
-             lives_pulse=None, combo=None, dash_timer=None, magnet=None):
+             lives_pulse=None, combo=None, dash_timer=None, magnet=None,
+             daily=False):
     """Draw the HUD top-left on a yellow halftone panel (visual V5). Score
     always shows; the lives and wave slots stay hidden while zero — F2 and
     F3 feed them.
@@ -520,6 +523,11 @@ def draw_hud(screen, score, lives=0, wave=0, muted=False, volume=None,
     a MAGNET Ns tag on the row below the audio tags — hidden while zero
     like the lives/wave slots, and in the effect's palette green so the
     color names the pull the same way the pickup's ring does.
+
+    daily (Tier 3): the daily seeded challenge's mode mark — a small gold
+    DAILY CHALLENGE tag on the row below the MAGNET slot, shown whenever
+    the mode is armed so the run (and the game-over R replaying it) reads
+    as the day's challenge.
 
     All text renders through the shared comicfx cache: one render per
     distinct (string, color, size), never per frame."""
@@ -607,6 +615,17 @@ def draw_hud(screen, score, lives=0, wave=0, muted=False, volume=None,
         screen.blit(surface, surface.get_rect(
             topright=(SCREEN_WIDTH - HUD_MARGIN, HUD_MARGIN + HUD_LINE_STEP)
         ))
+    if daily:
+        # Third row at the right edge, under MAGNET's — the same free
+        # right-edge column, one slot per feature so two live tags never
+        # trade seats (the magnet precedent).
+        surface = cached_text(
+            "DAILY CHALLENGE", PALETTE["daily_gold"], HUD_FONT_SIZE
+        )
+        screen.blit(surface, surface.get_rect(
+            topright=(SCREEN_WIDTH - HUD_MARGIN,
+                      HUD_MARGIN + DAILY_TAG_ROW * HUD_LINE_STEP)
+        ))
 
 
 def draw_boss_bar(screen, boss):
@@ -644,7 +663,7 @@ def game_over_lines(score, new_high=False, mode=None, top_chain=0,
     if mode is None:
         lines.append("press R to restart, Q to quit")
     else:
-        lines.append(f"R restart - 1/2/3 mode ({mode.upper()}) - Q quit")
+        lines.append(f"R restart - 1/2/3 mode ({mode.upper()}) - D daily - Q quit")
     return lines
 
 
@@ -819,6 +838,8 @@ def help_keymap():
             " ".join(DIFFICULTY_KEY_LABELS[mode] for mode in DIFFICULTY_MODES),
             "pick mode on the start / game-over screens",
         ),
+        ("Daily", DAILY_KEY_LABEL,
+         "toggle the daily challenge on the start / game-over screens"),
         ("Game over", "R / Q", "restart / quit"),
     ]
     return rows
@@ -875,15 +896,32 @@ def mode_menu_lines(current, highs):
     return lines
 
 
-def draw_mode_menu(screen, current=DIFFICULTY_DEFAULT, highs=None):
+def daily_menu_line(daily=False, daily_best=0):
+    """The boot menu's daily-challenge row, pure (daily challenge): the D
+    toggle, the day's persisted best, and the on marker when armed — kept
+    out of mode_menu_lines because it is not a mode row: the pinned
+    three-row mode contract (tests, the table zip) stays untouched."""
+    marker = "  < on" if daily else ""
+    return (
+        f"{DAILY_KEY_LABEL}  DAILY CHALLENGE  —  same spawns all day"
+        f"  —  best {int(daily_best)}{marker}"
+    )
+
+
+def draw_mode_menu(screen, current=DIFFICULTY_DEFAULT, highs=None,
+                   daily=False, daily_best=0):
     """The boot menu (Tier 2 difficulty): the shared dim sheet, then
     SELECT DIFFICULTY and one row per mode — 1/2/3 launch a run in that
-    mode (main's select_mode). The help overlay's family: raw ink text
-    over the dim, uniform surface alpha only, headless-safe."""
+    mode (main's select_mode) — then the daily challenge's D row. The
+    help overlay's family: raw ink text over the dim, uniform surface
+    alpha only, headless-safe."""
     screen.blit(pause_dim(), (0, 0))
     rows = mode_menu_lines(current, highs or {})
-    footer = "press 1, 2 or 3 to launch  -  Q quits"
-    block_height = HELP_TITLE_STEP + len(rows) * HELP_LINE_STEP + HELP_LINE_STEP
+    footer = "press 1, 2 or 3 to launch  -  D toggles the daily  -  Q quits"
+    # The daily row seats between the mode rows and the footer — one more
+    # HELP_LINE_STEP of block, so the whole layout stays centered.
+    total_rows = len(rows) + 1
+    block_height = HELP_TITLE_STEP + total_rows * HELP_LINE_STEP + HELP_LINE_STEP
     top = (SCREEN_HEIGHT - block_height) / 2
     title = cached_text(
         "SELECT DIFFICULTY", PALETTE["hud_ink"], GAME_OVER_FONT_SIZE
@@ -895,13 +933,20 @@ def draw_mode_menu(screen, current=DIFFICULTY_DEFAULT, highs=None):
         y = top + HELP_TITLE_STEP + row * HELP_LINE_STEP
         surface = cached_text(text, PALETTE["hud_ink"], HELP_FONT_SIZE)
         screen.blit(surface, surface.get_rect(center=(SCREEN_WIDTH / 2, y)))
+    daily_y = top + HELP_TITLE_STEP + len(rows) * HELP_LINE_STEP
+    daily_surface = cached_text(
+        daily_menu_line(daily, daily_best), PALETTE["daily_gold"], HELP_FONT_SIZE
+    )
+    screen.blit(
+        daily_surface, daily_surface.get_rect(center=(SCREEN_WIDTH / 2, daily_y))
+    )
     note = cached_text(footer, PALETTE["hud_panel_dot"], HELP_FONT_SIZE)
     screen.blit(
         note,
         note.get_rect(
             center=(
                 SCREEN_WIDTH / 2,
-                top + HELP_TITLE_STEP + len(rows) * HELP_LINE_STEP,
+                top + HELP_TITLE_STEP + total_rows * HELP_LINE_STEP,
             )
         ),
     )

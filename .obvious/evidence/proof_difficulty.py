@@ -124,7 +124,7 @@ game.game_over()
 prompt = game_over_lines(game.score, new_high=False, mode="hard")
 assert prompt == [
     f"Game over — score {game.score}",
-    "R restart - 1/2/3 mode (HARD) - Q quit",
+    "R restart - 1/2/3 mode (HARD) - D daily - Q quit",
 ], prompt
 render_frame()
 draw_game_over(screen, game.score, new_high=False, mode=game.mode)
