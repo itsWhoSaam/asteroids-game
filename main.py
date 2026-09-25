@@ -6,9 +6,11 @@ import pygame
 
 from constants import (
     ASTEROID_MAX_RADIUS,
+    BOSS_DRIFT_SPEED,
     BOSS_WAVE_INTERVAL,
     CLICK_DAMAGE_BASE,
     DIFFICULTY_SELECT_KEYS,
+    DIFFICULTY_TABLE,
     FLOAT_COLOR,
     FLOAT_FONT_SIZE,
     FLOAT_LIFETIME_SECONDS,
@@ -228,14 +230,16 @@ def handle_collisions(asteroids, shots, player1, game, powerups, shake=None,
                         color=style.color,
                     )
                     # A destroyed non-small rock occasionally pays a pickup
-                    # (F4); bosses never do (insanity threats) — and the
-                    # guard reads before the roll, so a boss death draws no
-                    # random number at all. drop_type (insanity chaos) rolls
-                    # 40% of drops into the ? wildcard; its contents stay
-                    # unknown until collected.
-                    if not isinstance(asteroid, Boss) and drops_powerup(
-                        asteroid.radius, random.random()
-                    ):
+                    # (F4). drop_type (insanity chaos) rolls 40% of drops
+                    # into the ? wildcard; its contents stay unknown until
+                    # collected. The boss's death always pays one (the
+                    # capstone payoff) — the same tables, a guaranteed roll.
+                    if isinstance(asteroid, Boss):
+                        kind = drop_type(random.random())
+                        PowerUp(asteroid.position.x, asteroid.position.y, kind)
+                        log_event("powerup_spawned", powerup_type=kind.value,
+                                  boss=True)
+                    elif drops_powerup(asteroid.radius, random.random()):
                         kind = drop_type(random.random())
                         PowerUp(asteroid.position.x, asteroid.position.y, kind)
                         log_event("powerup_spawned", powerup_type=kind.value)
@@ -579,7 +583,15 @@ def maybe_boss_wave(game, field):
     if field.spawned_this_wave > 0 or len(game.asteroids):
         return
     tier = boss_tier(game.wave)
-    Boss(SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2, tier)
+    boss = Boss(SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2, tier)
+    # The boss composes with the difficulty modes (capstone): its drift
+    # speed scales by the mode's multiplier, so an Easy boss glides and a
+    # Hard one stalks — the wave_params boss dict stays mode-independent
+    # (pinned by the difficulty tests) while the entity itself adapts.
+    direction = pygame.Vector2(0, 1).rotate(random.uniform(0, 360))
+    boss.velocity = direction * (
+        BOSS_DRIFT_SPEED * DIFFICULTY_TABLE[game.mode]["speed_mult"]
+    )
     field.spawned_this_wave += 1
     log_event("boss_spawned", wave=game.wave, tier=tier)
     sound.play(sound.SFX_BOSS)
@@ -711,14 +723,17 @@ def mint_destructions(previous, current, economy, stats, wave=None):
     a rock lands in its size tier, and its payout in the click or idle
     bucket by the killer the wreck reports (run-stats PR).
 
-    Bosses surface here but never mint (insanity threats): their death is
-    score-only, paid through register_kill at the sweep — the diff pass
-    logs the defeat and moves on.
+    Bosses surface here and mint like any wreck (the capstone payoff): the
+    pass logs the defeat, then the ordinary payout follows — still the one
+    destruction→mint path for every kill source. The mintable data guard
+    stays: a future variant that opts out of the ledger skips the payout
+    while its defeat still logs.
     """
     paid = []
     for wreck in destroyed_asteroids(previous, current):
         if isinstance(wreck, Boss):
             log_event("boss_defeated", wave=wave)
+        if not wreck.mintable:
             continue
         payout = economy.mint(wreck.radius)
         log_event("credit_minted", amount=payout)

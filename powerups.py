@@ -83,6 +83,12 @@ POWERUP_COLOR_KEYS = {
     PowerUpType.TRIPLE: "powerup_triple",
     PowerUpType.MAGNET: "powerup_magnet",
     PowerUpType.MYSTERY: "powerup_mystery",
+    # The chaos table can drop any of the seven buffs directly (and the
+    # boss's guaranteed drop rolls it every fight) — every droppable kind
+    # renders. PIERCE/HOMING/BOMB shipped colorless and crashed on draw.
+    PowerUpType.PIERCE: "powerup_pierce",
+    PowerUpType.HOMING: "powerup_homing",
+    PowerUpType.BOMB: "powerup_bomb",
 }
 
 
