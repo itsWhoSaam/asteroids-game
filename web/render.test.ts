@@ -5,7 +5,7 @@
  * color assignment.
  */
 import { describe, expect, it } from "vitest";
-import { PALETTE, PLAYER_RADIUS } from "../shared/constants";
+import { BANK_FRACTION, PALETTE, PLAYER_RADIUS } from "../shared/constants";
 import type { PlayerSnap } from "../shared/protocol";
 import { asteroidColor, assignShipColors, shipTriangle } from "./render";
 
@@ -27,6 +27,26 @@ describe("shipTriangle (player.py triangle)", () => {
     // rotateDeg((0,1), 90) = (-1, 0): the tip is at x - radius.
     expect(tip?.x).toBeCloseTo(-PLAYER_RADIUS);
     expect(tip?.y).toBeCloseTo(0);
+  });
+
+  it("banks the wing offsets about the tail center without moving the tip", () => {
+    const level = shipTriangle(0, 0, 0);
+    const banked = shipTriangle(0, 0, 0, 1); // full lean
+    expect(banked[0]).toEqual(level[0]); // the nose never moves
+    // The wings' offsets FROM THE TAIL CENTER scale by (1 ∓ BANK_FRACTION).
+    // At rotation 0 the offset runs purely along x (right = (-1, 0)); the
+    // base vertices share the tail center's y, which never scales.
+    const tailCenterY = -PLAYER_RADIUS;
+    expect(banked[2]?.x).toBeCloseTo((level[2]?.x ?? 0) * (1 + BANK_FRACTION), 9);
+    expect(banked[2]?.y).toBe(tailCenterY);
+    expect(banked[1]?.x).toBeCloseTo((level[1]?.x ?? 0) * (1 - BANK_FRACTION), 9);
+    expect(banked[1]?.y).toBe(tailCenterY);
+  });
+
+  it("stays exactly the pinned plan at the default bank", () => {
+    // The historical pins above run bank=0 — this pins that default
+    // explicitly, so the look change can never move the plain triangle.
+    expect(shipTriangle(50, 60, 30)).toEqual(shipTriangle(50, 60, 30, 0));
   });
 });
 
