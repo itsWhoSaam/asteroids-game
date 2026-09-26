@@ -489,6 +489,7 @@ def step(world, stats, sim_time, click_due, buy_due,
         hit_stop=hit_stop,
         saucers=world["saucers"],
         enemy_shots=world["enemy_shots"],
+        dt=sim_dt,
     )
     maybe_advance_wave(
         game,
