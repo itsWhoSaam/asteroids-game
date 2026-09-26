@@ -654,15 +654,17 @@ def hull_gradient_bands(nose, tail_a, tail_b, bands):
     """Pure band geometry for the ship's nose→tail hull gradient: the
     triangle tiled into `bands` quads between the tail edge and the nose
     vertex, each as (quad_points, band_fraction 0=tail..1=nose) so the
-    caller maps fractions to its own color pair. Hard band edges — the cel
-    style the rocks share."""
+    caller maps fractions to its own color pair. Fractions span the full
+    0→1 range so the tail band hits the pure shade and the nose band the
+    pure lit color; hard band edges — the cel style the rocks share."""
     out = []
     for i in range(bands):
         t0, t1 = i / bands, (i + 1) / bands
         a0, a1 = tail_a.lerp(nose, t0), tail_a.lerp(nose, t1)
         b0, b1 = tail_b.lerp(nose, t0), tail_b.lerp(nose, t1)
         quad = [(a0.x, a0.y), (a1.x, a1.y), (b1.x, b1.y), (b0.x, b0.y)]
-        out.append((quad, (t0 + t1) / 2))
+        fraction = i / (bands - 1) if bands > 1 else 0.0
+        out.append((quad, fraction))
     return out
 
 

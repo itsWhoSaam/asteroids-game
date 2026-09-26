@@ -848,9 +848,9 @@ SILHOUETTE_SHADOW_DEPTH = 0.30  # max crescent depth, as a fraction of radius
 
 # Ship presentation: banking scales the wing offsets by ±BANK_FRACTION at a
 # full-rate turn; the hull gradient is HULL_GRADIENT_BANDS hard cel bands;
-# the flame pulses between the two radii with the throttle. Both the shadow
-# offset and the flame's full-throttle reach stay under the halo band's 25px
-# inner edge (hull 20px + shadow 4.5px = 24.5; flame center 18px + 6px = 24).
+# the flame's apex reaches between the two radii with the throttle. Both the
+# shadow offset and the flame's full-throttle reach stay under the halo
+# band's 25px inner edge (hull 20px + shadow 4.5px = 24.5; flame apex 24).
 BANK_FRACTION = 0.15
 BANK_RESPONSE_S = 14.0           # how fast the bank tracks the turn rate
 HULL_GRADIENT_BANDS = 5          # cel bands from tail shade to lit nose
@@ -858,8 +858,10 @@ CANOPY_RADIUS_X = 0.36           # canopy ellipse, as fractions of hull radius
 CANOPY_RADIUS_Y = 0.24
 CANOPY_GLINT_FRACTION = 0.4      # glint offset inside the canopy, toward the light
 CANOPY_GLINT_RADIUS = 2          # px
-ENGINE_GLOW_IDLE_PX = 3.0        # flame radius at rest — the idle ember
-ENGINE_GLOW_THRUST_PX = 6.0      # flame radius at full throttle
-ENGINE_GLOW_TAIL_INSET = 2.0     # flame center sits this far inside the tail
+ENGINE_GLOW_REACH_IDLE_PX = 21.0    # plume apex past center at rest — the ember
+ENGINE_GLOW_REACH_THRUST_PX = 24.0  # plume apex at full throttle — still under 25
+ENGINE_GLOW_TAIL_INSET = 2.0        # plume base sits this far inside the tail
+ENGINE_GLOW_HALF_WIDTH = 2.5        # plume base half-width, px at rest
+ENGINE_GLOW_WIDTH_GAIN = 1.5        # extra half-width at full throttle
 THRUST_RESPONSE_S = 12.0         # how fast the throttle tracks the input
 SHIP_SHADOW_OFFSET = (2.0, 4.0)  # px, screen-space — mostly beneath the hull
