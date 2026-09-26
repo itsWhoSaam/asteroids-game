@@ -34,7 +34,9 @@ the game answers.
 
 | Input | Action |
 |---|---|
-| `W`/`A`/`S`/`D` | Thrust and rotate |
+| `W` | Thrust (accelerates along the nose; momentum coasts) |
+| `S` | Retro thrust |
+| `A`/`D` | Rotate |
 | `Space` | Shoot |
 | `Click` (mouse) | Chip the rock under the cursor |
 | `1`–`4` | Shop: Nanoblade (click damage ×1.8/lvl), Fire-rate (shot cooldown ×0.88/lvl), Income (credit payouts ×1.15/lvl), Drones (auto-turret per level) |

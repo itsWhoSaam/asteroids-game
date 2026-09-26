@@ -49,6 +49,7 @@ from asteroid import Asteroid, Boss, Mine, blast_victims, boss_tier, in_blast_ra
 from asteroidfield import AsteroidField
 from blackhole import BlackHole, BlackHoleScheduler, spawn_position as hole_position
 from challenge import daily_seed, daily_slug, utc_today
+from circleshape import resolve_contact
 from comicfx import Burst, build_background_layers, burst_word, spawn_burst
 from economy import Economy
 from drones import DroneBay, OfflineBanner, drone_dps
@@ -150,13 +151,32 @@ def try_dash(player, game):
 
 
 def handle_collisions(asteroids, shots, player1, game, powerups, shake=None,
-                      hit_stop=None, saucers=None, enemy_shots=None):
+                      hit_stop=None, saucers=None, enemy_shots=None, dt=None):
     # The sweep reports hits to the Game instead of exiting the process
     # (engagement F2): a hit costs one of the lives, the ship respawns
     # invulnerable, and the run ends only at zero lives. Invulnerability is
     # checked before any hit is resolved, so a respawning ship can sit on
     # an asteroid for the grace window without losing another life. The
     # shield rides the same path inside Game.player_hit (F4).
+    #
+    # dt is the sim frame's delta (physics overhaul): None — the pinned
+    # call shape tests and the balance sim use — reads as a live frame,
+    # while the real loop forwards sim_dt so a frozen frame (hit-stop)
+    # resolves no contacts, like every other integrator.
+    #
+    # Rock↔rock pair pass (physics overhaul): every overlapping pair
+    # bounces and separates through the pure contact helper before any
+    # game rule reads the field. Physics-only by contract — never kill(),
+    # never a despawned flip, never an event, never a mint — because a
+    # bounce that removed a rock would mint a phantom payout through the
+    # destruction diff downstream. The boss is an immovable wall in here:
+    # its inverse mass of 0 moves the field, never the fight's anchor.
+    if dt is None or dt > 0:
+        live = [rock for rock in asteroids if rock.alive()]
+        for i in range(len(live)):
+            for k in range(i + 1, len(live)):
+                resolve_contact(live[i], live[k])
+
     shot_kills = 0
     for asteroid in asteroids:
         if not asteroid.alive():
@@ -166,6 +186,13 @@ def handle_collisions(asteroids, shots, player1, game, powerups, shake=None,
             and not player1.invulnerable
             and asteroid.collides_with(player1)
         ):
+            # Physics before rules (physics overhaul): the contact shoves
+            # both bodies along the normal — the rock's inertia resists,
+            # the ship's doesn't — before the hit flow prices the
+            # collision. A frozen frame shoves nothing; the rules hook
+            # below is exactly where it always was.
+            if dt is None or dt > 0:
+                resolve_contact(player1, asteroid)
             log_event("player_hit")
             game.player_hit()
         for shot in shots:
@@ -545,7 +572,7 @@ def update_world(updatable, drones, asteroids, shots, player1, game, powerups,
 
     handle_collisions(asteroids, shots, player1, game, powerups, shake,
                       hit_stop=hit_stop, saucers=saucers,
-                      enemy_shots=enemy_shots)
+                      enemy_shots=enemy_shots, dt=sim_dt)
     maybe_advance_wave(game, field, banner, player1, economy)
     maybe_boss_wave(game, field)
     game.tick(sim_dt)  # insanity core: the combo window drains on sim time
