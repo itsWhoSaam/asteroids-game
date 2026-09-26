@@ -196,11 +196,12 @@ def draw_stage_frame(stage, radius, seed=11):
 
 def interior_ink(surface):
     """Ink pixels strictly inside the hull ring — sampled as a disc of
-    0.85·radius around the center, so the chromatic ring (which lives at
-    radius + stroke and beyond) can never bleed into the count; only
-    crack strokes can paint here."""
+    0.78·radius around the center, so only crack strokes can paint here.
+    The lumpy silhouette (semi-3D) dips to 0.86·radius at its deepest
+    vertex and the ink stroke rides ~2px inside that, so the disc shrinks
+    below both; the chromatic ring and outline can never bleed in."""
     cx, cy = 100, 100
-    reach = int(40 * 0.85)
+    reach = int(40 * 0.78)
     limit = reach * reach
     return sum(
         1
