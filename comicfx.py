@@ -545,6 +545,27 @@ def silhouette_points(radius, seed):
     return points
 
 
+def silhouette_radius_at(silhouette, heading_degrees):
+    """The lumpy outline's true radius at a heading — the ray-polygon
+    reach, by segment intersection. The bake's shadow band samples this at
+    fine angle steps so its inner edge parallels the outline between the
+    sparse silhouette vertices instead of cutting chords across them."""
+    direction = pygame.Vector2(1, 0).rotate(heading_degrees)
+    count = len(silhouette)
+    best = 0.0
+    for i in range(count):
+        a = silhouette[i]
+        edge = silhouette[(i + 1) % count] - a
+        denom = direction.x * edge.y - direction.y * edge.x
+        if abs(denom) < 1e-9:
+            continue  # the ray runs along this edge; another edge crosses
+        t = (a.x * edge.y - a.y * edge.x) / denom
+        s = (direction.y * a.x - direction.x * a.y) / denom
+        if t > 0 and 0 <= s < 1 and t > best:
+            best = t
+    return best
+
+
 def crater_specs(radius, seed):
     """Seeded crater layout (semi-3D): 2–5 ellipses per rock, each a
     (center offset, rx, ry) tuple relative to the rock center. Centers stay
@@ -603,22 +624,30 @@ def bake_rock_surface(
         pygame.draw.polygon(bake, flat_color, outer)
         return bake
 
-    # Two-band cel shading: the tier hue fills the body, then the shadow
-    # crescent paints between the silhouette and the lit polygon — each lit
-    # vertex pulled radially in by the depth the light misses at its angle
-    # (deepest on the anti-light rim, tapering to zero on the lit side).
-    # Hard band edges — cel-shaded, no airbrushing (the locked style).
-    pygame.draw.polygon(bake, tier_color, outer)
+    # Two-band cel shading: the shadow color fills the whole silhouette,
+    # then the lit body paints on top — a dense ring sampling the outline's
+    # true radius, pulled radially in by the depth the light misses at its
+    # angle (deepest on the anti-light rim, tapering to zero on the lit
+    # side). Dense sampling keeps the crescent parallel to the lumpy rim —
+    # the sparse silhouette vertices alone would cut straight chords across
+    # it. Hard band edges — cel-shaded, no airbrushing (the locked style).
+    # The lit ring stays star-shaped (reach ≥ 0.5·radius at every heading),
+    # so the top fill is always a simple polygon.
+    pygame.draw.polygon(bake, shadow_color, outer)
     anti_light = SILHOUETTE_LIGHT_ANGLE + 180.0
-    inner = []
-    for v in silhouette:
-        heading = math.degrees(math.atan2(v.y, v.x))
+    lit = []
+    steps = 72
+    for step in range(steps):
+        heading = step * 360.0 / steps
         depth = SILHOUETTE_SHADOW_DEPTH * radius * max(
             0.0, math.cos(math.radians(heading - anti_light))
         )
-        lit = v - v.normalize() * depth
-        inner.append((center.x + lit.x, center.y + lit.y))
-    pygame.draw.polygon(bake, shadow_color, outer + inner[::-1])
+        reach = silhouette_radius_at(silhouette, heading) - depth
+        lit.append(
+            (center.x + math.cos(math.radians(heading)) * reach,
+             center.y + math.sin(math.radians(heading)) * reach)
+        )
+    pygame.draw.polygon(bake, tier_color, lit)
 
     # The single warm highlight arc on the lit side, inset from the edge.
     arc_radius = radius * 0.62
