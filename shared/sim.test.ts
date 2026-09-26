@@ -5,7 +5,7 @@
  * deterministic, so every assertion holds identically across runs.
  */
 import { describe, expect, it } from "vitest";
-import { POWERUPS } from "./constants";
+import { MAX_DT, PLAYER_LINEAR_DAMPING, PLAYER_MAX_SPEED, PLAYER_THRUST_ACCEL, POWERUPS } from "./constants";
 import {
   addPlayer,
   buy,
@@ -344,16 +344,17 @@ describe("drop rules (powerups.py)", () => {
 });
 
 describe("player update (player.py)", () => {
-  it("turns 300°/s and thrusts 200 px/s along the facing", () => {
+  it("turns 300°/s and thrusts along the facing — velocity points along the rotated nose", () => {
     const w = soloWorld(7);
     const p = must(w.players.p1, "p1");
     p.invulnerabilityTimer = 0;
     for (let i = 0; i < 18; i++) step(w, DT, controls({ right: true }));
-    expect(p.rotation).toBeCloseTo(90, 6); // 300 × 0.5s
-    for (let i = 0; i < 60; i++) step(w, DT, controls({ thrust: true }));
-    // (0,1) rotated +90° is (−1, 0) — pygame's rotate matrix.
-    expect(p.x).toBeCloseTo(640 - 200, 1);
-    expect(p.y).toBeCloseTo(360, 1);
+    expect(p.rotation).toBeCloseTo(90, 6); // 300 × 0.5s — unchanged
+    step(w, DT, controls({ thrust: true }));
+    // (0,1) rotated +90° is (−1, 0) — pygame's rotate matrix. One thrusting
+    // frame: velocity = accel × dt, damped, pointing along the nose.
+    expect(p.vx).toBeCloseTo(-PLAYER_THRUST_ACCEL * DT * Math.exp(-PLAYER_LINEAR_DAMPING * DT), 6);
+    expect(p.vy).toBeCloseTo(0, 6);
   });
 
   it("shoot cooldown starts at 0.3s and scales ×0.88 per fire-rate level with a 0.03 floor", () => {
@@ -585,9 +586,14 @@ describe("MAX_DT clamp (constants.MAX_DT)", () => {
     const w = soloWorld(1);
     const p = must(w.players.p1, "p1");
     p.invulnerabilityTimer = 0;
-    for (let i = 0; i < 6; i++) step(w, 0.5, controls({ thrust: true }));
-    // 6 × 0.1s × 200 px/s = 120 px — not 6 × 0.5s × 200 = 600 px.
-    expect(p.y).toBeCloseTo(360 + 120, 1);
+    // Drive the ship to its ceiling, then feed one huge frame: the step
+    // clamps to MAX_DT and the capped velocity moves 360 × 0.1 = 36 px —
+    // inside the 40 px minimum contact overlap, so nothing tunnels.
+    for (let i = 0; i < 120; i++) step(w, DT, controls({ thrust: true }));
+    expect(Math.hypot(p.vx, p.vy)).toBeCloseTo(PLAYER_MAX_SPEED, 6);
+    const y0 = p.y;
+    step(w, 0.5, controls({ thrust: true }));
+    expect(p.y - y0).toBeCloseTo(PLAYER_MAX_SPEED * MAX_DT, 6); // 36 px
   });
 });
 

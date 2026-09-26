@@ -60,7 +60,10 @@ function warmSpawns(game: SoloGame): void {
   }
 }
 
-/** Stage a lethal collision: one life left, no grace, ship inside a rock. */
+/** Stage a lethal collision: one life left, no grace, a rock on the ship.
+ * The rock moves to the SHIP (the Python tests' pattern) — teleporting the
+ * ship to a freshly spawned rock would park it beyond the wrap margin, and
+ * the ship-only wrap would hand it to the opposite edge before the sweep. */
 function stageDeath(game: SoloGame): void {
   warmSpawns(game);
   const player = game.world.players.solo;
@@ -69,8 +72,8 @@ function stageDeath(game: SoloGame): void {
   player.score = 500;
   player.lives = 1;
   player.invulnerabilityTimer = 0;
-  player.x = rock.x;
-  player.y = rock.y;
+  rock.x = player.x;
+  rock.y = player.y;
 }
 
 describe("SoloGame construction", () => {

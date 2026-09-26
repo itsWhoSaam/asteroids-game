@@ -68,7 +68,7 @@ export function buildLanding(container: HTMLElement, actions: LandingActions): L
   const subtitle = el(
     "p",
     "landing-subtitle",
-    "Co-op rooms for 2–4 players. Fly with WASD or the arrows, shoot with space.",
+    "Co-op rooms for 2–4 players. W thrusts along the nose, S retro-thrusts, A/D rotate (or the arrows); shoot with space.",
   );
   card.append(title, subtitle);
 
