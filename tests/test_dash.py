@@ -1,23 +1,27 @@
-"""Insanity core: the dash — cooldown gate, nose impulse with decay,
-i-frames via max(), and the combo-breaking wiring in main.
+"""Insanity core: the dash — cooldown gate, an impulse that composes with
+the ship's carried momentum (physics overhaul), i-frames via max(), and
+the combo-breaking wiring in main.
 
 Failure signatures the tests must catch (spec): a dash that fires on
-cooldown, i-frames that shorten a respawn grace, an impulse that never
-decays (a permanent glide), and a dash that leaves the combo intact.
+cooldown, i-frames that shorten a respawn grace, a dash that replaces or
+hard-zeroes the ship's momentum instead of composing with it, and a dash
+that leaves the combo intact.
 """
 
 import json
+import math
 
 import pygame
 import pytest
 
 from constants import (
     DASH_COOLDOWN_S,
-    DASH_DECAY,
     DASH_DECAY_S,
     DASH_IMPULSE,
     DASH_IFRAME_S,
     PLAYER_INVULNERABILITY_SECONDS,
+    PLAYER_LINEAR_DAMPING,
+    PLAYER_MAX_SPEED,
 )
 from game import Game
 from main import try_dash
@@ -63,6 +67,22 @@ def test_dash_impulses_along_the_nose():
     assert player.velocity == expected
 
 
+def test_dash_composes_with_carried_momentum():
+    """The impulse adds to whatever the ship carries (physics overhaul):
+    thrust momentum plus dash — and the update step's shared ceiling
+    clamps the sum on the next integration."""
+    pygame.init()
+    player = Player(100, 660)
+    nose = pygame.Vector2(0, 1).rotate(player.rotation)
+    player.velocity = nose * 100.0  # carried thrust momentum
+
+    assert player.dash() is True
+    assert player.velocity == nose * (100.0 + DASH_IMPULSE)
+
+    player.update(1 / 60)
+    assert player.velocity.length() == pytest.approx(PLAYER_MAX_SPEED)
+
+
 def test_dash_respects_the_cooldown_then_recovers(tmp_path):
     pygame.init()
     player = Player(100, 660)
@@ -73,7 +93,9 @@ def test_dash_respects_the_cooldown_then_recovers(tmp_path):
 
     run_seconds(player, DASH_COOLDOWN_S + 0.1)
     assert player.dash_timer == 0.0  # fully cooled
-    assert player.velocity.length() == pytest.approx(0.0)  # clean handback
+    # No clean handback: the glide's momentum persists — damped, not
+    # zeroed. Damping, not the cooldown, is what returns normal handling.
+    assert 0 < player.velocity.length() < DASH_IMPULSE
     assert player.dash() is True  # the panic button is back
 
 
@@ -93,24 +115,21 @@ def test_dash_iframes_never_shorten_a_respawn_grace():
     )
 
 
-def test_glide_decays_and_hands_back_clean():
+def test_glide_decays_under_the_shared_damping():
     pygame.init()
     player = Player(100, 660)
     player.dash()
     start = player.velocity.length()
     assert start == pytest.approx(DASH_IMPULSE)
 
-    # The visible glide: most of the impulse bleeds off within
-    # DASH_DECAY_S (exponential — a fraction DASH_DECAY survives one
-    # second), and the cooldown's tail bleeds the rest.
+    # The visible glide bleeds off under the same linear damping every
+    # velocity obeys now (physics overhaul — the dash owns no decay of its
+    # own): after DASH_DECAY_S the glide keeps exactly the damping
+    # fraction, and it is still gliding.
     run_seconds(player, DASH_DECAY_S)
-    survived = player.velocity.length()
-    assert survived < start * (DASH_DECAY ** DASH_DECAY_S) * 1.01
-    assert survived > 0  # still gliding, just slower
-
-    run_seconds(player, DASH_COOLDOWN_S)
-    assert player.velocity.length() == 0.0  # glide over: normal handling
-    assert player.dash_timer == 0.0
+    assert player.velocity.length() == pytest.approx(
+        start * math.exp(-PLAYER_LINEAR_DAMPING * DASH_DECAY_S)
+    )
 
 
 def test_a_frozen_frame_neither_ticks_nor_decays_the_glide():
