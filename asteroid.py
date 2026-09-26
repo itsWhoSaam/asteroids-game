@@ -4,7 +4,13 @@ from logger import log_event
 
 import blackhole
 from circleshape import CircleShape
-from comicfx import chromatic_circle, draw_cracks
+from comicfx import (
+    bake_rock_surface,
+    chromatic_polygon,
+    draw_cracks,
+    silhouette_points,
+    spin_rate_for,
+)
 from constants import (
     ASTEROID_KINDS,
     ASTEROID_MAX_RADIUS,
@@ -37,6 +43,16 @@ from stats import SOURCE_CLICK, SOURCE_IDLE
 # Size-tier order for the palette lookup: tier 1 (small) → 3 (large).
 ASTEROID_COLOR_KEYS = ("asteroid_s", "asteroid_m", "asteroid_l")
 
+# The semi-3D shading pairs ride the same tier order: each rock's bake reads
+# its tier hue plus the shadow and highlight swatches that sit beside it in
+# the palette (constants.py, the semi-3D block).
+ASTEROID_SHADOW_KEYS = ("asteroid_shadow_s", "asteroid_shadow_m", "asteroid_shadow_l")
+ASTEROID_HIGHLIGHT_KEYS = (
+    "asteroid_highlight_s",
+    "asteroid_highlight_m",
+    "asteroid_highlight_l",
+)
+
 
 def asteroid_color(radius):
     """Pure palette hue for a rock, by size tier.
@@ -47,6 +63,17 @@ def asteroid_color(radius):
     """
     tier = min(ASTEROID_KINDS, max(1, round(radius / ASTEROID_MIN_RADIUS)))
     return PALETTE[ASTEROID_COLOR_KEYS[tier - 1]]
+
+
+def asteroid_shade_colors(radius):
+    """Pure (tier hue, shadow, highlight) triple for a rock, by size tier —
+    the three swatches its shaded bake resolves through PALETTE."""
+    tier = min(ASTEROID_KINDS, max(1, round(radius / ASTEROID_MIN_RADIUS)))
+    return (
+        PALETTE[ASTEROID_COLOR_KEYS[tier - 1]],
+        PALETTE[ASTEROID_SHADOW_KEYS[tier - 1]],
+        PALETTE[ASTEROID_HIGHLIGHT_KEYS[tier - 1]],
+    )
 
 
 def chip_threshold_for(radius):
@@ -102,6 +129,16 @@ class Asteroid(CircleShape):
         # The crack web's pattern seed: fixed at birth so a drifting rock's
         # cracks stick to its body; deepening reveals more of the same web.
         self.crack_seed = random.randrange(2**32)
+        # Semi-3D presentation state (this PR): the lumpy silhouette's seed —
+        # drawn from the same well as crack_seed and fixed at birth — plus
+        # the seeded tumble. The shaded bake renders lazily on first draw,
+        # so sim-only construction (the balance sim, sweeps) never touches
+        # surfaces; split children build fresh state like fresh chip_damage.
+        self.shape_seed = random.randrange(2**32)
+        self._silhouette = silhouette_points(radius, self.shape_seed)
+        self.spin_rate = spin_rate_for(self.shape_seed)  # deg/s, signed
+        self.spin_angle = 0.0
+        self._bake = None
         self.despawned = False
         self.mintable = True
         # Run stats (run-stats PR): the kill source the mint poll reports —
@@ -149,22 +186,59 @@ class Asteroid(CircleShape):
         return False
 
     def draw(self, screen):
-        # Inked comic rock (V2): the tier hue stays the fill stroke; the
-        # chromatic stack adds black ink and the red/cyan fringes around it.
-        chromatic_circle(
-            screen,
-            asteroid_color(self.radius),
-            self.position,
-            self.radius,
-            LINE_WIDTH
-        )
+        # Semi-3D comic rock (this PR): the shaded body bakes once per rock
+        # — tier-hue fill, two-band shadow crescent, highlight arc, seeded
+        # craters — and rotates at blit time, so per-frame cost stays blit
+        # plus strokes. The ink stack traces the rotated silhouette, keeping
+        # the black outline and red/cyan fringes on every frame.
+        if self._bake is None:
+            colors = self._bake_colors()
+            if colors is None:  # a variant's flat hull (the mine)
+                self._bake = bake_rock_surface(
+                    self.radius, self.shape_seed, flat_color=self._stroke_color()
+                )
+            else:
+                self._bake = bake_rock_surface(self.radius, self.shape_seed, *colors)
+        rotated = pygame.transform.rotate(self._bake, -self.spin_angle)
+        screen.blit(rotated, rotated.get_rect(center=self.position))
+        points = [
+            (self.position.x + v.x, self.position.y + v.y)
+            for v in self._rotated_silhouette()
+        ]
+        chromatic_polygon(screen, self._stroke_color(), points, LINE_WIDTH)
         # Chip-damage cracks (Tier 2): the chipped hull wears its damage —
-        # an ink web that deepens with the stage. Split children start from
-        # fresh chip_damage, so the web resets on every split for free.
+        # an ink web that deepens with the stage and tumbles with the body.
+        # Split children start from fresh chip_damage, so the web resets on
+        # every split for free.
         stage = crack_stage(self.chip_damage, self.radius)
         if stage > 0:
-            draw_cracks(screen, self.position, self.radius, stage, self.crack_seed)
+            draw_cracks(
+                screen, self.position, self.radius, stage, self.crack_seed,
+                self.spin_angle
+            )
+
+    def _bake_colors(self):
+        """The shaded bake's (tier, shadow, highlight) swatches — variants
+        override (the mine returns None: a flat hull, no shading)."""
+        return asteroid_shade_colors(self.radius)
+
+    def _stroke_color(self):
+        """The ink stack's colored stroke over the bake — variants revalue."""
+        return asteroid_color(self.radius)
+
+    def _rotated_silhouette(self):
+        """The silhouette in the body's current spin frame — the polygon the
+        ink stack traces this frame. pygame.transform.rotate(-spin) matches
+        Vector2.rotate(+spin) on screen (CCW image rotation vs the y-down
+        angle frame), so bake and outline tumble in lockstep."""
+        return [v.rotate(self.spin_angle) for v in self._silhouette]
+
     def update(self, dt):
+        # Presentation-only tumble (this PR): the visual spin advances with
+        # sim time — a paused or hit-stop-frozen frame holds it like every
+        # other clock. Never read by the sim; snapshotted clients derive the
+        # same spin from the rock's id.
+        self.spin_angle = (self.spin_angle + self.spin_rate * dt) % 360.0
         # Insanity threats: live black holes bend every trajectory — the
         # pull rides the same velocity the chrono scale multiplies below.
         self.velocity += blackhole.pull_at(self.position) * dt
@@ -391,25 +465,24 @@ class Mine(Asteroid):
         self.blink_clock += dt
 
     def draw(self, screen):
-        # A dark filled hull — distinctly not a tier hue — under the same
-        # inked stroke every rock wears, then the blinking marker tells you
-        # what this one is. Headless-safe: flat fills, no per-pixel alpha.
-        pygame.draw.circle(screen, PALETTE["mine_hull"], self.position, self.radius)
-        chromatic_circle(
-            screen,
-            PALETTE["mine_hull"],
-            self.position,
-            self.radius,
-            LINE_WIDTH
-        )
+        # The family silhouette (base draw, this PR): a flat dark bake —
+        # no shading, the menace reads flat — under the same inked stroke
+        # every rock wears, then the blinking marker tells you what this
+        # one is. Headless-safe: flat fills, no per-pixel alpha.
+        super().draw(screen)
         if mine_marker_on(self.blink_clock):
             pygame.draw.circle(
                 screen, MINE_MARKER_COLOR, self.position, MINE_MARKER_RADIUS
             )
         # Chipped mines wear cracks like any rock (free from the base draw).
-        stage = crack_stage(self.chip_damage, self.radius)
-        if stage > 0:
-            draw_cracks(screen, self.position, self.radius, stage, self.crack_seed)
+
+    def _bake_colors(self):
+        # Flat dark hull: no shading bands, no craters — the variant reads
+        # flat by design (the base draw's None sentinel skips them).
+        return None
+
+    def _stroke_color(self):
+        return PALETTE["mine_hull"]
 
     def split(self):
         """Detonation, not fission: the mine dies without children. Every
