@@ -332,3 +332,35 @@ export const SFX_POWERUP_VOLUME = 0.5;
 export const SFX_GAME_OVER_DURATION = 0.8;
 export const SFX_GAME_OVER_SWEEP: readonly [number, number] = [440.0, 90.0];
 export const SFX_GAME_OVER_VOLUME = 0.6;
+
+// --- Newtonian ship physics (physics overhaul) ------------------------------
+// Mirrored from constants.py's block of the same name — the parity test
+// (shared/physics.test.ts) reads the Python literals and fails the moment
+// these values drift. The ship is a body: W accelerates along the nose, S
+// retro-thrusts at a fraction of it, and the velocity they build persists
+// between frames — coasting under light linear damping instead of stopping
+// dead. PLAYER_MAX_SPEED keeps the anti-tunnel arithmetic honest: the worst
+// clamped frame moves 360 px/s * MAX_DT (0.1 s) = 36 px, inside the 40 px
+// minimum contact overlap, so overlap cannot be jumped over and no
+// swept-collision machinery is needed.
+export const PLAYER_THRUST_ACCEL = 600.0; // px/s^2 along the nose while W is held
+export const PLAYER_RETRO_FACTOR = 0.6; // S thrusts opposite the nose at this fraction
+export const PLAYER_MAX_SPEED = 360.0; // px/s ceiling — thrust and impulse all clamp
+export const PLAYER_LINEAR_DAMPING = 0.5; // 1/s exponential drag (speed ~halves every 1.4 s)
+
+// Dash retune, mirrored for parity though the web sim carries no dash: the
+// impulse composes with carried momentum instead of being the ship's only
+// velocity. constants.py rebinds this name by append — the 340.0 below the
+// original 420.0 is the value every import reads.
+export const DASH_IMPULSE = 340.0;
+
+// --- Impulse collision response (physics overhaul) --------------------------
+// Every body on the field carries a mass: rocks scale with area —
+// (radius / ASTEROID_MIN_RADIUS)^2, so a large rock outweighs a small one
+// nine to one — and the ship is a fixed small body (one small rock's worth
+// of inertia). Contacts resolve along the center-to-center normal through
+// the pure sim.resolveContact: an impulse proportional to the closing
+// speed, then de-penetration proportional to inverse mass. All numbers are
+// playtest starting values; none is structural.
+export const COLLISION_RESTITUTION = 0.85; // bounce share kept along the normal (1 = elastic)
+export const PLAYER_MASS = 1.0; // the ship weighs one small rock — hits move it

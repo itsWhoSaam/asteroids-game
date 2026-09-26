@@ -32,13 +32,18 @@ import {
   INCOME_MULT_PER_LEVEL,
   MAX_DT,
   NANOBLADE_MULT_PER_LEVEL,
+  COLLISION_RESTITUTION,
   PLAYER_INVULNERABILITY_SECONDS,
+  PLAYER_LINEAR_DAMPING,
+  PLAYER_MASS,
+  PLAYER_MAX_SPEED,
   PLAYER_RADIUS,
+  PLAYER_RETRO_FACTOR,
   PLAYER_SHOOT_COOLDOWN_FLOOR_SECONDS,
   PLAYER_SHOOT_COOLDOWN_SECONDS,
   PLAYER_SHOOT_SPEED,
-  PLAYER_SPEED,
   PLAYER_START_LIVES,
+  PLAYER_THRUST_ACCEL,
   PLAYER_TURN_SPEED,
   POWERUP_CHRONO_SLOW,
   POWERUP_DRIFT_SPEED,
@@ -103,6 +108,9 @@ export interface PlayerState {
   vx: number;
   vy: number;
   rotation: number; // degrees
+  /** Hull radius (player.py's CircleShape.radius): the wrap margin and the
+   * ship's side of every contact overlap. */
+  radius: number;
   /** 0 = ship gone: the player is out and spectates until the run ends. */
   lives: number;
   score: number;
@@ -233,6 +241,7 @@ export function addPlayer(w: World, id: string, name: string): void {
     vx: 0,
     vy: 0,
     rotation: 0,
+    radius: PLAYER_RADIUS,
     lives: PLAYER_START_LIVES,
     score: 0,
     shotCooldownTimer: 0,
@@ -362,6 +371,107 @@ function collides(ax: number, ay: number, ar: number, bx: number, by: number, br
   return Math.hypot(ax - bx, ay - by) <= ar + br;
 }
 
+// ---------------------------------------------------------------------------
+// Contact physics (circleshape.py, physics overhaul)
+// ---------------------------------------------------------------------------
+
+/** Any body the contact math can push: the ship and every rock satisfy this
+ * structurally — positions and velocities are mutated in place. */
+export interface ImpulseBody {
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  radius: number;
+}
+
+/** Rock mass model (asteroid.py's inverse_mass): rocks weigh by area —
+ * mass = (radius / ASTEROID_MIN_RADIUS)^2 — so a large rock outweighs a
+ * small one nine to one and the contact math moves the light one more. */
+export function asteroidInverseMass(radius: number): number {
+  return (ASTEROID_MIN_RADIUS / radius) ** 2;
+}
+
+/** The ship's resistance to an impulse (player.py's inverse_mass): one
+ * small rock's worth of inertia, so a large rock's hit shoves the ship
+ * hard while the rock barely notices. */
+export const PLAYER_INVERSE_MASS = 1.0 / PLAYER_MASS;
+
+/**
+ * Pure impulse resolution along the center-to-center normal — the
+ * circleshape.resolveContact mirror, the one math every contact pass
+ * shares. Approaching bodies exchange an impulse proportional to their
+ * closing speed — restitution `e` scales the bounce, so momentum is
+ * conserved exactly along the normal while a (1 − e²) share of the pair's
+ * kinetic energy dissipates. Both bodies are then pushed apart along the
+ * normal by the full overlap, split by inverse mass: a light body gives
+ * way, an immovable one (inverse mass 0) doesn't move at all. A
+ * separating contact only de-penetrates — no impulse can add speed to
+ * bodies already flying apart.
+ *
+ * The velocity scales fold the chrono dilation into the momentum each
+ * body carries into the contact: a chrono-slowed rock hits with its
+ * dilated speed (asteroid.py's effective_velocity), not its base one. The
+ * ship passes 1.
+ *
+ * Pure by contract: velocities and positions in, velocities and positions
+ * out — never a kill, never a mint, never an event. Returns the applied
+ * impulse (0.0 for a de-penetration-only contact), or null when the
+ * bodies aren't touching, or when both are immovable and nothing can
+ * respond.
+ */
+export function resolveContact(
+  a: ImpulseBody,
+  b: ImpulseBody,
+  aInverseMass: number,
+  bInverseMass: number,
+  aVelScale = 1,
+  bVelScale = 1,
+  e: number = COLLISION_RESTITUTION,
+): number | null {
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  const dist = Math.hypot(dx, dy);
+  const overlap = a.radius + b.radius - dist;
+  if (overlap <= 0) return null; // not touching — nothing to resolve
+  const nx = dist > 0 ? dx / dist : 1;
+  const ny = dist > 0 ? dy / dist : 0;
+  const totalInv = aInverseMass + bInverseMass;
+  if (totalInv <= 0) return null; // two immovable bodies: nothing can respond
+  let impulse = 0;
+  const closing = (b.vx * bVelScale - a.vx * aVelScale) * nx + (b.vy * bVelScale - a.vy * aVelScale) * ny;
+  if (closing < 0) {
+    // approaching; separating contacts just de-penetrate
+    impulse = (-(1 + e) * closing) / totalInv;
+    a.vx -= impulse * aInverseMass * nx;
+    a.vy -= impulse * aInverseMass * ny;
+    b.vx += impulse * bInverseMass * nx;
+    b.vy += impulse * bInverseMass * ny;
+  }
+  a.x -= nx * overlap * (aInverseMass / totalInv);
+  a.y -= ny * overlap * (aInverseMass / totalInv);
+  b.x += nx * overlap * (bInverseMass / totalInv);
+  b.y += ny * overlap * (bInverseMass / totalInv);
+  return impulse;
+}
+
+/** Ship-only screen wrap (player.py's wrap): the hull radius is the margin
+ * — the ship fully leaves one side before re-entering the other. Rocks,
+ * shots, and pickups cull instead, so wrap never leaves the ship. */
+function wrapPlayer(p: PlayerState): void {
+  const margin = p.radius;
+  if (p.x < -margin) {
+    p.x = SCREEN_WIDTH + margin;
+  } else if (p.x > SCREEN_WIDTH + margin) {
+    p.x = -margin;
+  }
+  if (p.y < -margin) {
+    p.y = SCREEN_HEIGHT + margin;
+  } else if (p.y > SCREEN_HEIGHT + margin) {
+    p.y = -margin;
+  }
+}
+
 /** True once fully outside the screen bounds by `margin` on any side. */
 function offScreen(x: number, y: number, margin: number): boolean {
   return x < -margin || x > SCREEN_WIDTH + margin || y < -margin || y > SCREEN_HEIGHT + margin;
@@ -465,27 +575,58 @@ const NO_CONTROLS: Controls = {
 };
 
 function updatePlayer(w: World, p: PlayerState, c: Controls, dt: number, events: GameEvent[]): void {
+  // A frozen frame (a stalled host's clamped tick) steps dt=0: integrate
+  // nothing — no thrust, no damping, no cooldown ticks, no trigger pull.
+  // Everything below advances only on positive dt.
+  if (dt <= 0) return;
   p.shotCooldownTimer -= dt;
   p.invulnerabilityTimer -= dt;
   tickPlayerPowerups(p, dt);
 
   if (c.left) p.rotation -= PLAYER_TURN_SPEED * dt;
   if (c.right) p.rotation += PLAYER_TURN_SPEED * dt;
-  if (c.thrust) movePlayer(p, 1, dt);
-  if (c.back) movePlayer(p, -1, dt);
-  if (c.shoot) shootPlayer(w, p, events);
-}
 
-function movePlayer(p: PlayerState, sign: 1 | -1, dt: number): void {
-  const dir = rotateDeg(UP, p.rotation);
-  const vx = dir.x * PLAYER_SPEED * sign;
-  const vy = dir.y * PLAYER_SPEED * sign;
-  p.x += vx * dt;
-  p.y += vy * dt;
-  // Python's Player.velocity stays zeroed and unread; this carries the
-  // ship's actual motion for the client's interpolator only.
-  p.vx = vx;
-  p.vy = vy;
+  // Newtonian thrust (physics overhaul): W accelerates along the nose, S
+  // retro-thrusts at a fraction of it, and the velocity they build
+  // persists between frames — releasing the keys leaves the ship coasting
+  // on its momentum. (The Python build flips thrust with its REVERSE
+  // curse; the web sim carries no curses, so there is no sign to flip.)
+  const nose = rotateDeg(UP, p.rotation);
+  let ax = 0;
+  let ay = 0;
+  if (c.thrust) {
+    ax += nose.x * PLAYER_THRUST_ACCEL;
+    ay += nose.y * PLAYER_THRUST_ACCEL;
+  }
+  if (c.back) {
+    ax -= nose.x * PLAYER_THRUST_ACCEL * PLAYER_RETRO_FACTOR;
+    ay -= nose.y * PLAYER_THRUST_ACCEL * PLAYER_RETRO_FACTOR;
+  }
+  p.vx += ax * dt;
+  p.vy += ay * dt;
+  // Light linear damping: gentle space drag that bleeds the ship's
+  // momentum back toward rest.
+  const damp = Math.exp(-PLAYER_LINEAR_DAMPING * dt);
+  p.vx *= damp;
+  p.vy *= damp;
+  // Speed ceiling: anti-tunnel by arithmetic — the worst clamped frame
+  // moves PLAYER_MAX_SPEED * MAX_DT = 36 px, inside the 40 px minimum
+  // contact overlap, so overlap can't be jumped over.
+  const speed = Math.hypot(p.vx, p.vy);
+  if (speed > PLAYER_MAX_SPEED) {
+    const scale = PLAYER_MAX_SPEED / speed;
+    p.vx *= scale;
+    p.vy *= scale;
+  }
+  p.x += p.vx * dt;
+  p.y += p.vy * dt;
+  // Ship-only wrap: the ship is the one body that re-enters the opposite
+  // edge — rocks, shots, and pickups cull, and the mint path depends on
+  // that. The hull radius is the margin: the ship fully leaves one side
+  // before re-entering the other.
+  wrapPlayer(p);
+
+  if (c.shoot) shootPlayer(w, p, events);
 }
 
 function tickPlayerPowerups(p: PlayerState, dt: number): void {
@@ -668,7 +809,29 @@ function normalize(x: number, y: number): Vec2 | null {
 // Collision sweep (main.handle_collisions) — generalized to co-op
 // ---------------------------------------------------------------------------
 
-function handleCollisions(w: World, events: GameEvent[]): void {
+function handleCollisions(w: World, events: GameEvent[], dt: number): void {
+  // Rock↔rock pair pass (physics overhaul): every overlapping pair bounces
+  // and separates through the pure contact helper before any game rule
+  // reads the field. Physics-only by contract — never a kill (a removed
+  // rock would mint a phantom payout through the destruction pipeline
+  // downstream), never an event. Chrono-slowed rocks contact at their
+  // dilated speed, so slow motion hits heavy, not floaty. A frozen frame
+  // (dt = 0) resolves nothing, like every other integrator.
+  if (dt > 0) {
+    for (let i = 0; i < w.asteroids.length; i++) {
+      for (let k = i + 1; k < w.asteroids.length; k++) {
+        const a = w.asteroids[i]!;
+        const b = w.asteroids[k]!;
+        resolveContact(
+          a, b,
+          asteroidInverseMass(a.radius),
+          asteroidInverseMass(b.radius),
+          w.speedScale, w.speedScale,
+        );
+      }
+    }
+  }
+
   // Snapshot semantics mirror pygame Group iteration (a copy at loop
   // start): split children born mid-sweep wait for the next tick.
   const rocks = [...w.asteroids];
@@ -680,7 +843,20 @@ function handleCollisions(w: World, events: GameEvent[]): void {
     if (w.phase === "playing") {
       for (const p of alivePlayers(w)) {
         if (p.invulnerabilityTimer > 0) continue;
-        if (!collides(asteroid.x, asteroid.y, asteroid.radius, p.x, p.y, PLAYER_RADIUS)) continue;
+        if (!collides(asteroid.x, asteroid.y, asteroid.radius, p.x, p.y, p.radius)) continue;
+        // Physics before rules (physics overhaul): the contact shoves
+        // both bodies along the normal — the rock's inertia resists, the
+        // ship's doesn't — before the hit flow prices the collision. A
+        // frozen frame shoves nothing; the rules hook below is exactly
+        // where it always was.
+        if (dt > 0) {
+          resolveContact(
+            p, asteroid,
+            PLAYER_INVERSE_MASS,
+            asteroidInverseMass(asteroid.radius),
+            1, w.speedScale,
+          );
+        }
         playerHit(w, p, events);
       }
     }
@@ -987,7 +1163,7 @@ export function step(w: World, dt: number, inputs: Record<string, Controls>): Ga
 
   updateDrones(w, stepDt);
 
-  handleCollisions(w, events);
+  handleCollisions(w, events, stepDt);
   maybeAdvanceWave(w, events);
   tickEconomyPowerups(w, stepDt);
 
