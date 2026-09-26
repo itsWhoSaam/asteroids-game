@@ -210,7 +210,7 @@ def test_reverse_controls_flip_while_the_curse_runs(monkeypatch):
         pressed[pygame.K_w] = 1
         monkeypatch.setattr(pygame.key, "get_pressed", lambda: pressed)
         player.update(0.1)
-        return player.position
+        return player
 
     normal = update_with_thrust(Player(640, 360))
     cursed = Player(640, 360)
@@ -218,9 +218,12 @@ def test_reverse_controls_flip_while_the_curse_runs(monkeypatch):
     assert cursed.cursed_reverse
     cursed = update_with_thrust(cursed)
 
-    # rotation 0 faces (0, 1): thrust moves +y normally, -y cursed.
-    assert normal.y > 360
-    assert cursed.y < 360
+    # rotation 0 faces (0, 1): thrust builds +y velocity normally, -y
+    # cursed — and the positions follow the velocities.
+    assert normal.velocity.y > 0
+    assert cursed.velocity.y < 0
+    assert normal.position.y > 360
+    assert cursed.position.y < 360
 
 
 def test_curse_timer_expires(monkeypatch):

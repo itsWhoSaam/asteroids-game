@@ -797,3 +797,23 @@ BOSS_DRIFT_SPEED = 25.0
 PALETTE["powerup_pierce"] = (156, 175, 195)  # steel — the shot that drills
 PALETTE["powerup_homing"] = (255, 196, 56)  # amber — the bent-shot beacon
 PALETTE["powerup_bomb"] = (214, 40, 57)  # deep crimson — the field-clear
+
+
+# --- Newtonian ship physics (physics overhaul) ---------------------------------
+# The ship is a body now: W accelerates along the nose, S retro-thrusts at a
+# fraction of it, and the velocity they build persists between frames — coasting
+# under light linear damping instead of stopping dead. PLAYER_MAX_SPEED keeps
+# the anti-tunnel arithmetic honest: the worst clamped frame moves
+# 360 px/s * MAX_DT (0.1 s) = 36 px, inside the 40 px minimum contact overlap
+# (player radius + smallest rock), so overlap cannot be jumped over and no
+# swept-collision machinery is needed.
+PLAYER_THRUST_ACCEL = 600.0   # px/s^2 along the nose while W is held
+PLAYER_RETRO_FACTOR = 0.6     # S thrusts opposite the nose at this fraction
+PLAYER_MAX_SPEED = 360.0      # px/s ceiling — thrust, dash, and pull all clamp
+PLAYER_LINEAR_DAMPING = 0.5   # 1/s exponential drag (speed ~halves every 1.4 s)
+
+# Dash retune, by append (the palette-growth precedent: never edit a
+# literal in place): the impulse now composes with carried momentum instead
+# of being the ship's only velocity, so it kicks toward the cap, not past
+# it. Every import reads this binding.
+DASH_IMPULSE = 340.0
