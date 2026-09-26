@@ -33,11 +33,24 @@ BOLD: comic lettering is the point, and one flag at font creation keeps
 every cache entry's metrics consistent.
 """
 
+import math
 import random
 
 import pygame
 
-from constants import ASTEROID_MIN_RADIUS, CHIP_CRACK_FRACTIONS, PALETTE
+from constants import (
+    ASTEROID_MIN_RADIUS,
+    CHIP_CRACK_FRACTIONS,
+    CRATER_COUNT,
+    CRATER_RADIUS_FRACTION,
+    PALETTE,
+    SILHOUETTE_JITTER,
+    SILHOUETTE_LIGHT_ANGLE,
+    SILHOUETTE_SHADOW_DEPTH,
+    SILHOUETTE_VERTICES,
+    ASTEROID_SPIN_MAX_DPS,
+    ASTEROID_SPIN_MIN_DPS,
+)
 
 # Halo budget: the ring-band tripwire (the unshielded band 25–32px from
 # the ship center must stay paper) leaves ~5px of outline room past the
@@ -459,11 +472,15 @@ def crack_polylines(radius, seed):
     return web
 
 
-def draw_cracks(surface, center, radius, stage, seed):
+def draw_cracks(surface, center, radius, stage, seed, angle=0.0):
     """The ink crack web over a chipped rock, deepening with the stage:
     stage n draws the first n * CRACK_LINES_PER_STAGE polylines of the
     rock's seeded web, stroked wider as the cracks deepen. Pure ink lines
-    on the opaque world surface — never per-pixel alpha."""
+    on the opaque world surface — never per-pixel alpha.
+
+    angle: the body's spin in degrees (semi-3D) — the web sticks to the
+    rock's frame, so it tumbles with the hull. The default keeps the
+    angle-free call sites and their pins identical."""
     if stage <= 0:
         return
     stage = min(stage, len(CHIP_CRACK_FRACTIONS))
@@ -473,6 +490,190 @@ def draw_cracks(surface, center, radius, stage, seed):
             surface,
             INK,
             False,
-            [(center[0] + point.x, center[1] + point.y) for point in polyline],
+            [
+                (center[0] + point.rotate(angle).x, center[1] + point.rotate(angle).y)
+                for point in polyline
+            ],
             width,
         )
+
+
+# --- Semi-3D rocks & ship (ship-and-rock shading PR) --------------------------
+# Presentation-only pseudo-3D: pure geometry helpers plus the one-time rock
+# bake. Per-frame draw cost stays blit + polygon strokes — the V3/V4 budget
+# contract — and every color site resolves through PALETTE upstream.
+
+# The shape streams are deliberately one-per-aspect: silhouette, craters, and
+# spin each reseed their own random.Random off the rock's one shape seed, so
+# adding an aspect later cannot reshuffle the others.
+
+
+def mix_colors(a, b, t):
+    """Pure color lerp a→b at fraction t — fade_to_paper generalized to any
+    pair of palette entries (the no-alpha-fade house pattern)."""
+    return tuple(int(round(c_a + (c_b - c_a) * t)) for c_a, c_b in zip(a, b))
+
+
+def light_direction():
+    """The shared light's screen direction: up-left, the heading the rock
+    bakes and the ship's canopy glint both read. A Vector2 so callers can
+    scale it straight into an offset."""
+    return pygame.Vector2(1, 0).rotate(SILHOUETTE_LIGHT_ANGLE)
+
+
+def silhouette_points(radius, seed):
+    """Seeded lumpy silhouette (semi-3D): SILHOUETTE_VERTICES vertices at
+    even angle steps, each radius jittered within ±SILHOUETTE_JITTER of the
+    hull radius. Points are relative to the rock center, in draw order —
+    ready for draw.polygon's smooth-closed path.
+
+    Deterministic per (radius, seed): the seed is fixed at birth (the
+    crack_seed precedent), so a drifting rock keeps its shape and split
+    children draw their own. The web twin derives the same shape from the
+    rock's snapshot id — no protocol change."""
+    rng = random.Random(seed)
+    vertex_lo, vertex_hi = SILHOUETTE_VERTICES
+    jitter_lo, jitter_hi = SILHOUETTE_JITTER
+    count = rng.randint(vertex_lo, vertex_hi)
+    points = []
+    for i in range(count):
+        heading = i * 360 / count
+        jitter = rng.uniform(jitter_lo, jitter_hi) * rng.choice((-1, 1))
+        points.append(
+            pygame.Vector2(1, 0).rotate(heading) * radius * (1 + jitter)
+        )
+    return points
+
+
+def crater_specs(radius, seed):
+    """Seeded crater layout (semi-3D): 2–5 ellipses per rock, each a
+    (center offset, rx, ry) tuple relative to the rock center. Centers stay
+    well inside the hull, so a crater and its lit rim never cross the
+    silhouette even at the deepest silhouette dip."""
+    rng = random.Random(seed + 1)  # a stream apart from the silhouette's
+    count_lo, count_hi = CRATER_COUNT
+    radius_lo, radius_hi = CRATER_RADIUS_FRACTION
+    craters = []
+    for _ in range(rng.randint(count_lo, count_hi)):
+        offset = (
+            pygame.Vector2(1, 0).rotate(rng.uniform(0, 360))
+            * rng.uniform(0, 0.62)
+            * radius
+        )
+        rx = rng.uniform(radius_lo, radius_hi) * radius
+        ry = rx * rng.uniform(0.65, 0.95)
+        craters.append((offset, rx, ry))
+    return craters
+
+
+def spin_rate_for(seed):
+    """Seeded signed spin rate in deg/s (semi-3D tumble): magnitude inside
+    the ASTEROID_SPIN band, direction a coin flip — presentation-only state
+    the sim never reads."""
+    rng = random.Random(seed + 2)  # a stream apart from the shape's
+    rate = rng.uniform(ASTEROID_SPIN_MIN_DPS, ASTEROID_SPIN_MAX_DPS)
+    return rate if rng.random() < 0.5 else -rate
+
+
+def bake_rock_surface(
+    radius, seed, tier_color=None, shadow_color=None, highlight_color=None,
+    flat_color=None,
+):
+    """Pre-render a rock's shaded body (semi-3D): the silhouette filled with
+    the tier hue, a hard two-band shadow crescent at the rim the light
+    misses, the warm highlight arc on the lit side, and the seeded craters
+    beneath the crack web. SRCALPHA — opaque inside the silhouette,
+    transparent outside — so the per-frame cost is one rotate + blit, and
+    the ink stack traces the silhouette on top at draw time.
+
+    flat_color (the mine's dark hull): a variant's flat fill — silhouette
+    only, no shading, craters, or arc, so the variant keeps its flat menace.
+
+    The light is baked in the body's local frame (the spec's bake-and-rotate
+    design): at spin 0 it shines from up-left on screen, and the bake
+    tumbles with the rock thereafter."""
+    pad = 4  # room for the lumpiest vertex past the nominal radius
+    size = int(radius * 2) + pad * 2
+    bake = pygame.Surface((size, size), pygame.SRCALPHA)
+    center = pygame.Vector2(size / 2, size / 2)
+    silhouette = silhouette_points(radius, seed)
+    outer = [(center.x + v.x, center.y + v.y) for v in silhouette]
+
+    if flat_color is not None:
+        pygame.draw.polygon(bake, flat_color, outer)
+        return bake
+
+    # Two-band cel shading: the tier hue fills the body, then the shadow
+    # crescent paints between the silhouette and the lit polygon — each lit
+    # vertex pulled radially in by the depth the light misses at its angle
+    # (deepest on the anti-light rim, tapering to zero on the lit side).
+    # Hard band edges — cel-shaded, no airbrushing (the locked style).
+    pygame.draw.polygon(bake, tier_color, outer)
+    anti_light = SILHOUETTE_LIGHT_ANGLE + 180.0
+    inner = []
+    for v in silhouette:
+        heading = math.degrees(math.atan2(v.y, v.x))
+        depth = SILHOUETTE_SHADOW_DEPTH * radius * max(
+            0.0, math.cos(math.radians(heading - anti_light))
+        )
+        lit = v - v.normalize() * depth
+        inner.append((center.x + lit.x, center.y + lit.y))
+    pygame.draw.polygon(bake, shadow_color, outer + inner[::-1])
+
+    # The single warm highlight arc on the lit side, inset from the edge.
+    arc_radius = radius * 0.62
+    arc = []
+    for step in range(-4, 5):
+        heading = math.radians(SILHOUETTE_LIGHT_ANGLE + step * 15.0)
+        arc.append((
+            center.x + math.cos(heading) * arc_radius,
+            center.y + math.sin(heading) * arc_radius,
+        ))
+    pygame.draw.lines(bake, highlight_color, False, arc, 3)
+
+    # Seeded craters: dark bowls with a lit rim glint on the light-facing
+    # edge — surface detail over the shading, beneath the crack web.
+    for offset, rx, ry in crater_specs(radius, seed):
+        bowl_center = center + offset
+        bowl = pygame.Rect(0, 0, int(rx * 2), int(ry * 2))
+        bowl.center = (int(bowl_center.x), int(bowl_center.y))
+        pygame.draw.ellipse(bake, shadow_color, bowl)
+        rim = []
+        for step in range(-2, 3):
+            heading = math.radians(SILHOUETTE_LIGHT_ANGLE + step * 30.0)
+            rim.append((
+                bowl_center.x + math.cos(heading) * rx * 0.85,
+                bowl_center.y + math.sin(heading) * ry * 0.85,
+            ))
+        pygame.draw.lines(bake, highlight_color, False, rim, 2)
+
+    return bake
+
+
+def hull_gradient_bands(nose, tail_a, tail_b, bands):
+    """Pure band geometry for the ship's nose→tail hull gradient: the
+    triangle tiled into `bands` quads between the tail edge and the nose
+    vertex, each as (quad_points, band_fraction 0=tail..1=nose) so the
+    caller maps fractions to its own color pair. Hard band edges — the cel
+    style the rocks share."""
+    out = []
+    for i in range(bands):
+        t0, t1 = i / bands, (i + 1) / bands
+        a0, a1 = tail_a.lerp(nose, t0), tail_a.lerp(nose, t1)
+        b0, b1 = tail_b.lerp(nose, t0), tail_b.lerp(nose, t1)
+        quad = [(a0.x, a0.y), (a1.x, a1.y), (b1.x, b1.y), (b0.x, b0.y)]
+        out.append((quad, (t0 + t1) / 2))
+    return out
+
+
+def ellipse_points(center, rx, ry, angle_degrees, segments=12):
+    """Pure rotated-ellipse outline points — pygame.draw.ellipse is
+    axis-aligned only, and the ship's canopy must bank and turn with the
+    hull. Closed-ready for draw.polygon."""
+    points = []
+    for i in range(segments):
+        t = math.radians(i * 360 / segments)
+        point = pygame.Vector2(math.cos(t) * rx, math.sin(t) * ry)
+        point = point.rotate(angle_degrees)
+        points.append((center.x + point.x, center.y + point.y))
+    return points

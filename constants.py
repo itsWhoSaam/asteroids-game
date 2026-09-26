@@ -797,3 +797,69 @@ BOSS_DRIFT_SPEED = 25.0
 PALETTE["powerup_pierce"] = (156, 175, 195)  # steel — the shot that drills
 PALETTE["powerup_homing"] = (255, 196, 56)  # amber — the bent-shot beacon
 PALETTE["powerup_bomb"] = (214, 40, 57)  # deep crimson — the field-clear
+
+
+# --- Semi-3D presentation look (ship-and-rock shading PR) ------------------------
+# Presentation-only pseudo-3D: rocks gain lumpy shaded tumbling bodies, the
+# ship a gradient hull with canopy, engine glow, banking, and a drop shadow.
+# Every new color enters PALETTE here (the magnet/mine precedent: append-only
+# palette growth), each mixed from existing swatches so the print identity
+# holds — no hex literals in draw code. The web twin mirrors these keys in
+# shared/constants.ts (follow-up PR).
+
+# Ship swatches, mixed from existing entries.
+PALETTE["ship_hull_shade"] = (35, 82, 113)   # ship × paper — the deep-indigo tail
+PALETTE["ship_canopy"] = (168, 244, 248)     # ship toward white — the canopy glass
+PALETTE["ship_drop_shadow"] = (13, 10, 32)   # paper toward ink — the ground shadow
+PALETTE["engine_glow"] = (255, 130, 74)      # spark × fringe_r — the exhaust flame
+
+# Rock swatches per size tier: the lit band keeps the tier hue, the rim
+# deepens to the tier's shadow, and the highlight arc warms toward the spark.
+PALETTE["asteroid_shadow_l"] = (78, 39, 127)
+PALETTE["asteroid_shadow_m"] = (104, 27, 90)
+PALETTE["asteroid_shadow_s"] = (104, 49, 112)
+PALETTE["asteroid_highlight_l"] = (214, 137, 169)
+PALETTE["asteroid_highlight_m"] = (255, 119, 110)
+PALETTE["asteroid_highlight_s"] = (255, 153, 146)
+
+# Silhouette shape: vertex count band and radius jitter band (a fraction of
+# the radius, signed both ways) — the lumpy look. Narrow bands keep the rocks
+# reading as rocks, not noise.
+SILHOUETTE_VERTICES = (10, 14)
+SILHOUETTE_JITTER = (0.08, 0.14)
+
+# Craters: count band and radius band per rock, as fractions of the hull
+# radius. Centers stay within 0.62·radius, so a crater and its rim always
+# sit inside even the lumpiest silhouette (0.62 + 0.22 < 1 − 0.14).
+CRATER_COUNT = (2, 5)
+CRATER_RADIUS_FRACTION = (0.10, 0.22)
+
+# Tumble: the seeded spin band in deg/s — fast enough to read as motion over
+# a couple of seconds, slow enough that it reads as a tumble, not a wobble.
+ASTEROID_SPIN_MIN_DPS = 15.0
+ASTEROID_SPIN_MAX_DPS = 45.0
+
+# The two shading bands follow a light fixed in the bake's local frame: the
+# lit side faces SILHOUETTE_LIGHT_ANGLE (up-left on screen at spin 0), the
+# shadow crescent hugs the opposite rim. The bake rotates with the rock, so
+# the lit side tumbles with the body — the spec's bake-and-rotate design.
+SILHOUETTE_LIGHT_ANGLE = 225.0  # deg, the y-down atan2 frame: up-left
+SILHOUETTE_SHADOW_DEPTH = 0.30  # max crescent depth, as a fraction of radius
+
+# Ship presentation: banking scales the wing offsets by ±BANK_FRACTION at a
+# full-rate turn; the hull gradient is HULL_GRADIENT_BANDS hard cel bands;
+# the flame pulses between the two radii with the throttle. Both the shadow
+# offset and the flame's full-throttle reach stay under the halo band's 25px
+# inner edge (hull 20px + shadow 4.5px = 24.5; flame center 18px + 6px = 24).
+BANK_FRACTION = 0.15
+BANK_RESPONSE_S = 14.0           # how fast the bank tracks the turn rate
+HULL_GRADIENT_BANDS = 5          # cel bands from tail shade to lit nose
+CANOPY_RADIUS_X = 0.36           # canopy ellipse, as fractions of hull radius
+CANOPY_RADIUS_Y = 0.24
+CANOPY_GLINT_FRACTION = 0.4      # glint offset inside the canopy, toward the light
+CANOPY_GLINT_RADIUS = 2          # px
+ENGINE_GLOW_IDLE_PX = 3.0        # flame radius at rest — the idle ember
+ENGINE_GLOW_THRUST_PX = 6.0      # flame radius at full throttle
+ENGINE_GLOW_TAIL_INSET = 2.0     # flame center sits this far inside the tail
+THRUST_RESPONSE_S = 12.0         # how fast the throttle tracks the input
+SHIP_SHADOW_OFFSET = (2.0, 4.0)  # px, screen-space — mostly beneath the hull
