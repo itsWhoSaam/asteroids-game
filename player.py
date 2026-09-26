@@ -51,9 +51,9 @@ class Player(CircleShape):
         self.powerup_timers = {}
         self.shield_hits = 0
         self.rotation = 0
-        # Dash (insanity core): dash_timer is the shared cooldown + decay
-        # clock for the impulse dash() fires along the nose — the velocity
-        # it adds is the same one the thrust integrator carries now.
+        # Dash (insanity core): dash_timer is the cooldown clock for the
+        # impulse dash() fires along the nose — the velocity it adds is
+        # the same one the thrust integrator carries.
         self.velocity = pygame.Vector2(0, 0)
         self.dash_timer = 0.0
         # Bomb pickup (insanity chaos): main injects the field-clear
@@ -210,12 +210,14 @@ class Player(CircleShape):
         """SHIFT (insanity core): an impulse along the nose with brief
         i-frames. False while cooling down.
 
-        The impulse adds into the velocity the ship carries, and the
-        shared integrator bleeds it while the cooldown clock runs. I-frames
-        ride the existing invulnerability timer via max() — a respawn grace
-        is never shortened, and the blink draw already shows the safe
-        window. The combo break is the caller's wiring (main.try_dash): the
-        ship does not own run state."""
+        The impulse composes with the momentum the ship already carries —
+        thrust velocity plus dash, capped by update's speed ceiling — and
+        ordinary linear damping bleeds the total back down: the dash no
+        longer owns or zeroes velocity. I-frames ride the existing
+        invulnerability timer via max() — a respawn grace is never
+        shortened, and the blink draw already shows the safe window. The
+        combo break is the caller's wiring (main.try_dash): the ship does
+        not own run state."""
         if self.dash_timer > 0:
             return False
         self.dash_timer = DASH_COOLDOWN_S
@@ -237,14 +239,11 @@ class Player(CircleShape):
         self.invulnerability_timer -= dt
         self._tick_powerups(dt)
 
-        # Dash cooldown (insanity core): the clock drains on sim time, and
-        # when it empties the dash's velocity is zeroed so the ship handles
-        # normally again. The glide's position step and decay ride the
-        # shared integrator below now.
-        if self.dash_timer > 0:
-            self.dash_timer = max(0.0, self.dash_timer - dt)
-            if self.dash_timer == 0:
-                self.velocity.update((0, 0))  # glide over: clean handback
+        # Dash cooldown (insanity core): the clock drains on sim time. The
+        # impulse it gates composes with the ship's carried momentum, and
+        # ordinary linear damping — not a hard zero — hands normal
+        # handling back when the glide bleeds out.
+        self.dash_timer = max(0.0, self.dash_timer - dt)
 
         # REVERSE curse (insanity chaos): one sign flips every answer the
         # controls get — the same keys, the backwards ship. The dash is not

@@ -811,3 +811,9 @@ PLAYER_THRUST_ACCEL = 600.0   # px/s^2 along the nose while W is held
 PLAYER_RETRO_FACTOR = 0.6     # S thrusts opposite the nose at this fraction
 PLAYER_MAX_SPEED = 360.0      # px/s ceiling — thrust, dash, and pull all clamp
 PLAYER_LINEAR_DAMPING = 0.5   # 1/s exponential drag (speed ~halves every 1.4 s)
+
+# Dash retune, by append (the palette-growth precedent: never edit a
+# literal in place): the impulse now composes with carried momentum instead
+# of being the ship's only velocity, so it kicks toward the cap, not past
+# it. Every import reads this binding.
+DASH_IMPULSE = 340.0
