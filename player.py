@@ -2,10 +2,22 @@ import pygame
 import blackhole
 from circleshape import CircleShape
 from constants import (
+    BANK_FRACTION,
+    BANK_RESPONSE_S,
+    CANOPY_GLINT_FRACTION,
+    CANOPY_GLINT_RADIUS,
+    CANOPY_RADIUS_X,
+    CANOPY_RADIUS_Y,
     DASH_COOLDOWN_S,
     DASH_DECAY,
     DASH_IMPULSE,
     DASH_IFRAME_S,
+    ENGINE_GLOW_HALF_WIDTH,
+    ENGINE_GLOW_REACH_IDLE_PX,
+    ENGINE_GLOW_REACH_THRUST_PX,
+    ENGINE_GLOW_TAIL_INSET,
+    ENGINE_GLOW_WIDTH_GAIN,
+    HULL_GRADIENT_BANDS,
     LINE_WIDTH,
     PALETTE,
     PLAYER_BLINK_HZ,
@@ -23,8 +35,17 @@ from constants import (
     POWERUP_TRIPLE_SPREAD,
     SCREEN_HEIGHT,
     SCREEN_WIDTH,
+    SHIP_SHADOW_OFFSET,
+    THRUST_RESPONSE_S,
 )
-from comicfx import chromatic_circle, chromatic_polygon
+from comicfx import (
+    chromatic_circle,
+    chromatic_polygon,
+    ellipse_points,
+    hull_gradient_bands,
+    light_direction,
+    mix_colors,
+)
 from logger import log_event
 from powerups import PowerUpType
 
@@ -60,6 +81,12 @@ class Player(CircleShape):
         # construction — the player is built before the Game exists, so the
         # attribute starts None and every recorder call guards on it.
         self.stats = None
+        # Semi-3D presentation clocks (this PR): the bank leans into the
+        # current turn (-1..1) and the throttle drives the exhaust flame
+        # (0..1). Both ease toward their per-frame targets in update() and
+        # are never read by the sim.
+        self.bank_level = 0.0
+        self.thrust_level = 0.0
 
     @property
     def invulnerable(self):
@@ -167,26 +194,59 @@ class Player(CircleShape):
         self.shield_hits = 0
 
     # in the Player class
-    def triangle(self):
+    def triangle(self, bank=0.0):
+        """The hull's three points. bank (semi-3D, this PR): -1..1 from the
+        presentation clock — the right vertex's offset scales by
+        ±BANK_FRACTION so the ship leans into turns. bank=0 is the plan
+        every existing caller and pin knows."""
         forward = pygame.Vector2(0, 1).rotate(self.rotation)
         right = pygame.Vector2(0, 1).rotate(self.rotation + 90) * self.radius / 1.5
         a = self.position + forward * self.radius
-        b = self.position - forward * self.radius - right
-        c = self.position - forward * self.radius + right
+        b = self.position - forward * self.radius - right * (1 - BANK_FRACTION * bank)
+        c = self.position - forward * self.radius + right * (1 + BANK_FRACTION * bank)
         return [a, b, c]
-    
+
     def draw(self, screen):
         # Grace-window blink: skip the draw on alternate half-cycles so the
         # invulnerable ship flickers instead of sitting inside a rock unseen.
         if self.invulnerable and (self.invulnerability_timer * PLAYER_BLINK_HZ) % 1 >= 0.5:
             return
-        # Inked comic hull (V2): black ink, chromatic fringes, cyan stroke.
+        points = self.triangle(self.bank_level)
+        # Soft drop shadow (semi-3D): the hull's own shape offset in screen
+        # space, filled in the shadow ink — the hull covers all but the
+        # offset sliver, sitting the ship off the paper. The offset is
+        # tuned (with the glow below) to stay inside the halo tripwire
+        # band's 25px inner edge.
+        shadow = [
+            (x + SHIP_SHADOW_OFFSET[0], y + SHIP_SHADOW_OFFSET[1]) for x, y in points
+        ]
+        pygame.draw.polygon(screen, PALETTE["ship_drop_shadow"], shadow)
+        # Gradient hull (semi-3D): the banded nose→tail cel fill — the
+        # deep-indigo shade at the tail brightening to the lit cyan at the
+        # nose, hard band edges like the rocks' shading.
+        nose, tail_a, tail_b = points
+        for quad, band in hull_gradient_bands(nose, tail_a, tail_b, HULL_GRADIENT_BANDS):
+            pygame.draw.polygon(
+                screen,
+                mix_colors(PALETTE["ship_hull_shade"], PALETTE["ship"], band),
+                quad,
+            )
+        # Canopy (semi-3D): a small dome near the centroid with a specular
+        # glint dot toward the light — the strongest 3D cue at this scale.
+        self._draw_canopy(screen, nose, tail_a, tail_b)
+        # Inked comic hull (V2): black ink, chromatic fringes, cyan stroke —
+        # unchanged, now tracing the banked hull over its fill.
         chromatic_polygon(
             screen,
             PALETTE["ship"],
-            self.triangle(),
+            points,
             LINE_WIDTH
         )
+        # Engine glow (semi-3D): the exhaust plume over the tail — drawn
+        # after the ink stack so the idle ember stays readable past the
+        # tail ink; its reach is tuned (with the shadow offset) to keep the
+        # halo tripwire band paper.
+        self._draw_engine_glow(screen)
         # Shield ring (F4): a stocked charge shows outside the hull, so the
         # player can see the next hit will be absorbed. Blinking with the
         # ship above keeps the ring honest during the grace window too.
@@ -198,6 +258,64 @@ class Player(CircleShape):
                 self.radius + POWERUP_SHIELD_RING_GAP,
                 LINE_WIDTH,
             )
+
+    def _draw_engine_glow(self, screen):
+        """The exhaust flame (semi-3D): a tapered plume behind the tail —
+        its base inside the hull, its apex reaching ENGINE_GLOW_REACH_*
+        from center with the throttle (an idle ember at rest, full flame
+        ahead) — over one faded backing disc that melts it into the paper
+        (the no-alpha fade; per-pixel alpha is off the table). Both stay
+        under the halo band's 25px inner edge at full throttle."""
+        nose_dir = pygame.Vector2(0, 1).rotate(self.rotation)
+        reach = ENGINE_GLOW_REACH_IDLE_PX + (
+            (ENGINE_GLOW_REACH_THRUST_PX - ENGINE_GLOW_REACH_IDLE_PX)
+            * self.thrust_level
+        )
+        half_width = ENGINE_GLOW_HALF_WIDTH + ENGINE_GLOW_WIDTH_GAIN * self.thrust_level
+        base_center = self.position - nose_dir * (self.radius - ENGINE_GLOW_TAIL_INSET)
+        apex = self.position - nose_dir * reach
+        right = pygame.Vector2(0, 1).rotate(self.rotation + 90)
+        pygame.draw.circle(
+            screen,
+            mix_colors(PALETTE["engine_glow"], PALETTE["paper"], 0.55),
+            (base_center.x, base_center.y),
+            max(1, int(half_width + 2)),
+        )
+        pygame.draw.polygon(
+            screen,
+            PALETTE["engine_glow"],
+            [
+                (
+                    base_center.x + right.x * half_width,
+                    base_center.y + right.y * half_width,
+                ),
+                (
+                    base_center.x - right.x * half_width,
+                    base_center.y - right.y * half_width,
+                ),
+                (apex.x, apex.y),
+            ],
+        )
+
+    def _draw_canopy(self, screen, nose, tail_a, tail_b):
+        """The cockpit (semi-3D): a small ellipse at the hull's centroid,
+        its long axis across the ship, with the specular glint dot thrown
+        toward the shared light. Pure fills — headless-safe."""
+        centroid = (nose + tail_a + tail_b) / 3
+        canopy = ellipse_points(
+            centroid,
+            self.radius * CANOPY_RADIUS_X,
+            self.radius * CANOPY_RADIUS_Y,
+            self.rotation + 90,
+        )
+        pygame.draw.polygon(screen, PALETTE["ship_canopy"], canopy)
+        glint = centroid + light_direction() * self.radius * CANOPY_GLINT_FRACTION
+        pygame.draw.circle(
+            screen,
+            PALETTE["hud_ink"],
+            (glint.x, glint.y),
+            CANOPY_GLINT_RADIUS,
+        )
 
     def rotate(self, dt):
         self.rotation += PLAYER_TURN_SPEED * dt
@@ -245,6 +363,7 @@ class Player(CircleShape):
         # controls get — the same keys, the backwards ship. The dash is not
         # flipped: it fires along the nose, which the cursed steering aims.
         sign = -1.0 if self.cursed_reverse else 1.0
+        rotation_before = self.rotation
         if keys[pygame.K_a]:
             self.rotate(-dt * sign)
         if keys[pygame.K_d]:
@@ -253,6 +372,25 @@ class Player(CircleShape):
             self.move(dt * sign)
         if keys[pygame.K_s]:
             self.move(-dt * sign)
+        # Semi-3D presentation clocks (this PR): the bank tracks this
+        # frame's rotation delta (a full-rate turn banks fully), the
+        # throttle tracks forward thrust or a dash. Both ease toward their
+        # targets and hold on a frozen (dt=0) frame like every other clock;
+        # the sim never reads either field.
+        if dt > 0:
+            turn_fraction = (self.rotation - rotation_before) / (PLAYER_TURN_SPEED * dt)
+            bank_target = max(-1.0, min(1.0, turn_fraction))
+            self.bank_level += (bank_target - self.bank_level) * min(
+                1.0, dt * BANK_RESPONSE_S
+            )
+            forward_input = (
+                (keys[pygame.K_w] and not self.cursed_reverse)
+                or (keys[pygame.K_s] and self.cursed_reverse)
+            )
+            throttle_target = 1.0 if forward_input or self.dash_timer > 0 else 0.0
+            self.thrust_level += (throttle_target - self.thrust_level) * min(
+                1.0, dt * THRUST_RESPONSE_S
+            )
         # Insanity threats: gravity drifts the ship toward any live well at
         # half strength (BLACK_HOLE_PLAYER_FACTOR) — a position drift, not
         # velocity: the dash owns the only velocity the ship has.
