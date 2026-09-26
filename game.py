@@ -286,12 +286,17 @@ class Game:
         if self.daily and self.daily_day is not None:
             if record_daily_score(self.daily_day, self._score.current,
                                   path=self.save_path):
-                self._daily_best = self._score.current
                 log_event(
                     "daily_best",
                     date=daily_slug(self.daily_day),
                     score=self._score.current,
                 )
+            # The cache is the menu row's readout: re-read the day's
+            # standing best after every daily game over — a worse run must
+            # not leave the readout at its stale boot value (it was only
+            # ever refreshed on a win).
+            self._daily_best = load_daily_best(self.daily_day,
+                                               path=self.save_path)
         log_event("game_over", score=self.score, high_score=self.high_score)
         sound.play(sound.SFX_GAME_OVER)  # F6: the run winding down
 
