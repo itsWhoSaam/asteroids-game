@@ -86,7 +86,19 @@ export type PaletteKey =
   | "spark"
   | "hud_ink"
   | "hud_panel"
-  | "banner";
+  | "banner"
+  // Semi-3D presentation look (constants.py, ship-and-rock shading PR):
+  // the shading swatches ride the same append-only palette growth.
+  | "ship_hull_shade"
+  | "ship_canopy"
+  | "ship_drop_shadow"
+  | "engine_glow"
+  | "asteroid_shadow_l"
+  | "asteroid_shadow_m"
+  | "asteroid_shadow_s"
+  | "asteroid_highlight_l"
+  | "asteroid_highlight_m"
+  | "asteroid_highlight_s";
 
 export const PALETTE: Record<PaletteKey, RGB> = {
   paper: [23, 18, 58], // deep-indigo void behind everything
@@ -104,9 +116,74 @@ export const PALETTE: Record<PaletteKey, RGB> = {
   hud_ink: [255, 247, 230], // warm white HUD text
   hud_panel: [255, 210, 63], // yellow panels (HUD restyle, later visual PR)
   banner: [255, 210, 63],
+  // Semi-3D shading swatches (constants.py, ship-and-rock shading PR) —
+  // append-only palette growth, each mixed from existing swatches so the
+  // print identity holds. Values are the desktop's exact RGB tuples.
+  ship_hull_shade: [35, 82, 113], // ship × paper — the deep-indigo tail
+  ship_canopy: [168, 244, 248], // ship toward white — the canopy glass
+  ship_drop_shadow: [13, 10, 32], // paper toward ink — the ground shadow
+  engine_glow: [255, 130, 74], // spark × fringe_r — the exhaust flame
+  // Rock shading per size tier: the lit band keeps the tier hue, the rim
+  // deepens to the tier's shadow, and the highlight arc warms toward the
+  // spark.
+  asteroid_shadow_l: [78, 39, 127],
+  asteroid_shadow_m: [104, 27, 90],
+  asteroid_shadow_s: [104, 49, 112],
+  asteroid_highlight_l: [214, 137, 169],
+  asteroid_highlight_m: [255, 119, 110],
+  asteroid_highlight_s: [255, 153, 146],
 };
 
 export const HUD_COLOR = PALETTE.hud_ink;
+
+// --- Semi-3D presentation look (ship-and-rock shading PR) ------------------
+// Scalars mirrored verbatim from constants.py's semi-3D block (the
+// table-pinning tests hold this file to the Python literals). Presentation
+// only — the sim reads none of these.
+
+// Silhouette shape: vertex count band and radius jitter band (a fraction of
+// the radius, signed both ways) — the lumpy look. Narrow bands keep the
+// rocks reading as rocks, not noise.
+export const SILHOUETTE_VERTICES: readonly [number, number] = [10, 14];
+export const SILHOUETTE_JITTER: readonly [number, number] = [0.08, 0.14];
+
+// Craters: count band and radius band per rock, as fractions of the hull
+// radius. Centers stay within 0.62·radius, so a crater and its rim always
+// sit inside even the lumpiest silhouette (0.62 + 0.22 < 1 − 0.14).
+export const CRATER_COUNT: readonly [number, number] = [2, 5];
+export const CRATER_RADIUS_FRACTION: readonly [number, number] = [0.1, 0.22];
+
+// Tumble: the seeded spin band in deg/s — fast enough to read as motion over
+// a couple of seconds, slow enough that it reads as a tumble, not a wobble.
+export const ASTEROID_SPIN_MIN_DPS = 15.0;
+export const ASTEROID_SPIN_MAX_DPS = 45.0;
+
+// The two shading bands follow a light fixed in the bake's local frame: the
+// lit side faces SILHOUETTE_LIGHT_ANGLE (up-left on screen at spin 0), the
+// shadow crescent hugs the opposite rim. The bake rotates with the rock, so
+// the lit side tumbles with the body — the spec's bake-and-rotate design.
+export const SILHOUETTE_LIGHT_ANGLE = 225.0; // deg, the y-down atan2 frame: up-left
+export const SILHOUETTE_SHADOW_DEPTH = 0.3; // max crescent depth, as a fraction of radius
+
+// Ship presentation: banking scales the wing offsets by ±BANK_FRACTION at a
+// full-rate turn; the hull gradient is HULL_GRADIENT_BANDS hard cel bands;
+// the flame's apex reaches between the two radii with the throttle. Both the
+// shadow offset and the flame's full-throttle reach stay under the halo
+// band's 25px inner edge (hull 20px + shadow 4.5px = 24.5; flame apex 24).
+export const BANK_FRACTION = 0.15;
+export const BANK_RESPONSE_S = 14.0; // how fast the bank tracks the turn rate
+export const HULL_GRADIENT_BANDS = 5; // cel bands from tail shade to lit nose
+export const CANOPY_RADIUS_X = 0.36; // canopy ellipse, as fractions of hull radius
+export const CANOPY_RADIUS_Y = 0.24;
+export const CANOPY_GLINT_FRACTION = 0.4; // glint offset inside the canopy, toward the light
+export const CANOPY_GLINT_RADIUS = 2; // px
+export const ENGINE_GLOW_REACH_IDLE_PX = 21.0; // plume apex past center at rest — the ember
+export const ENGINE_GLOW_REACH_THRUST_PX = 24.0; // plume apex at full throttle — still under 25
+export const ENGINE_GLOW_TAIL_INSET = 2.0; // plume base sits this far inside the tail
+export const ENGINE_GLOW_HALF_WIDTH = 2.5; // plume base half-width, px at rest
+export const ENGINE_GLOW_WIDTH_GAIN = 1.5; // extra half-width at full throttle
+export const THRUST_RESPONSE_S = 12.0; // how fast the throttle tracks the input
+export const SHIP_SHADOW_OFFSET: readonly [number, number] = [2.0, 4.0]; // px, screen-space
 
 // --- Idle economy core ---------------------------------------------------
 // All balance numbers here are playtest starting values from the idle spec;

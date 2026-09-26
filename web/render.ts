@@ -8,9 +8,12 @@
 import {
   ASTEROID_KINDS,
   ASTEROID_MIN_RADIUS,
+  BANK_FRACTION,
+  CANOPY_GLINT_RADIUS,
   DRONE_MARKER_COLOR,
   DRONE_MARKER_RADIUS,
   DRONE_ORBIT_RADIUS,
+  HULL_GRADIENT_BANDS,
   LINE_WIDTH,
   PALETTE,
   PLAYER_BLINK_HZ,
@@ -23,11 +26,26 @@ import {
 } from "../shared/constants";
 import type { RGB } from "../shared/constants";
 import { rotateDeg } from "../shared/sim";
-import type { PlayerSnap, Snapshot } from "../shared/protocol";
+import type { AsteroidSnap, PlayerSnap, Snapshot } from "../shared/protocol";
 import type { PowerUpKind } from "../shared/constants";
 import { fontCss } from "./fonts";
 import type { FloatingTexts, ParticleField } from "./fx";
 import { rgbCss } from "./fx";
+import {
+  canopyGlintCenter,
+  canopyPoints,
+  engineGlowBackingColor,
+  engineGlowGeometry,
+  fillPolygon,
+  getRockBake,
+  hullBandColor,
+  hullGradientBands,
+  pruneShipClocks,
+  rockInkPoints,
+  shipShadowOffset,
+  spinAngleFor,
+  updateShipClocks,
+} from "./sem3d";
 
 const UP = { x: 0, y: 1 };
 
@@ -71,16 +89,30 @@ export function assignShipColors(players: PlayerSnap[]): Record<string, RGB> {
 }
 
 /** player.py's triangle(): tip on the nose, base behind — the same rotateDeg
- * the sim moves by, so the ship renders exactly where the desktop's does. */
-export function shipTriangle(x: number, y: number, rotation: number): Array<{ x: number; y: number }> {
+ * the sim moves by, so the ship renders exactly where the desktop's does.
+ * bank (semi-3D): -1..1 from the presentation clock — the wing offsets scale
+ * by ±BANK_FRACTION so the ship leans into turns; bank=0 is the pinned
+ * plan every existing caller and test knows. */
+export function shipTriangle(
+  x: number,
+  y: number,
+  rotation: number,
+  bank = 0,
+): Array<{ x: number; y: number }> {
   const forward = rotateDeg(UP, rotation);
   const right = rotateDeg(UP, rotation + 90);
   const rx = (right.x * PLAYER_RADIUS) / 1.5;
   const ry = (right.y * PLAYER_RADIUS) / 1.5;
   return [
     { x: x + forward.x * PLAYER_RADIUS, y: y + forward.y * PLAYER_RADIUS },
-    { x: x - forward.x * PLAYER_RADIUS - rx, y: y - forward.y * PLAYER_RADIUS - ry },
-    { x: x - forward.x * PLAYER_RADIUS + rx, y: y - forward.y * PLAYER_RADIUS + ry },
+    {
+      x: x - forward.x * PLAYER_RADIUS - rx * (1 - BANK_FRACTION * bank),
+      y: y - forward.y * PLAYER_RADIUS - ry * (1 - BANK_FRACTION * bank),
+    },
+    {
+      x: x - forward.x * PLAYER_RADIUS + rx * (1 + BANK_FRACTION * bank),
+      y: y - forward.y * PLAYER_RADIUS + ry * (1 + BANK_FRACTION * bank),
+    },
   ];
 }
 
@@ -194,6 +226,10 @@ export interface WorldView {
   showNameTags: boolean;
   particles: ParticleField;
   floats: FloatingTexts;
+  /** Presentation clock (seconds — the rAF time the caller renders at):
+   * drives asteroid tumble and the ship's bank/throttle easing. Never sim
+   * state; the sim's dt gates live server-side. */
+  now: number;
 }
 
 function powerupColor(kind: PowerUpKind): RGB {
@@ -224,11 +260,79 @@ function drawDrones(ctx: CanvasRenderingContext2D, snap: Snapshot): void {
 
 function drawPlayer(ctx: CanvasRenderingContext2D, p: PlayerSnap, view: WorldView): void {
   if (p.lives <= 0) return; // out of lives = no ship (spectating)
+  // Presentation clocks ease every visible frame (player.py eases in
+  // update(), not draw()): bank leans into the turn, throttle drives the
+  // exhaust plume. Never read by the sim.
+  const { bank, thrust } = updateShipClocks(p, view.now);
   // Grace-window blink: skip the draw on alternate half-cycles.
   const blinkDark = p.invulnTimer > 0 && (p.invulnTimer * PLAYER_BLINK_HZ) % 1 >= 0.5;
   const hull = view.shipColors[p.id] ?? PALETTE.ship;
   if (!blinkDark) {
-    chromaticPolygon(ctx, hull, shipTriangle(p.x, p.y, p.rotation));
+    const points = shipTriangle(p.x, p.y, p.rotation, bank);
+    // Soft drop shadow (semi-3D): the hull's own shape offset in screen
+    // space — the hull covers all but the offset sliver, sitting the ship
+    // off the paper. Tuned (with the glow below) to stay inside the halo
+    // tripwire band's 25px inner edge.
+    const shadow = shipShadowOffset();
+    fillPolygon(
+      ctx,
+      points.map((pt) => ({ x: pt.x + shadow.x, y: pt.y + shadow.y })),
+      PALETTE.ship_drop_shadow,
+    );
+    // Gradient hull (semi-3D): the banded nose→tail cel fill — the
+    // deep-indigo shade at the tail brightening to the hull hue at the
+    // nose, hard band edges like the rocks' shading.
+    const [nose, tailA, tailB] = points;
+    if (nose && tailA && tailB) {
+      for (const { quad, fraction } of hullGradientBands(nose, tailA, tailB, HULL_GRADIENT_BANDS)) {
+        fillPolygon(ctx, quad, hullBandColor(hull, fraction));
+      }
+      // Canopy (semi-3D): a small dome at the hull's centroid with the
+      // specular glint dot toward the shared light — the strongest 3D cue
+      // at this scale.
+      fillPolygon(ctx, canopyPoints(nose, tailA, tailB, p.rotation), PALETTE.ship_canopy);
+      const glint = canopyGlintCenter(nose, tailA, tailB);
+      ctx.beginPath();
+      ctx.arc(glint.x, glint.y, CANOPY_GLINT_RADIUS, 0, Math.PI * 2);
+      ctx.fillStyle = rgbCss(PALETTE.hud_ink);
+      ctx.fill();
+    }
+    // Inked comic hull (V2): black ink, chromatic fringes, hull stroke —
+    // unchanged, now tracing the banked hull over its fill.
+    chromaticPolygon(ctx, hull, points);
+    // Engine glow (semi-3D): the exhaust plume over the tail — drawn after
+    // the ink stack so the idle ember stays readable past the tail ink;
+    // its reach is tuned (with the shadow offset) to keep the halo tripwire
+    // band paper.
+    const glow = engineGlowGeometry(p.x, p.y, p.rotation, thrust);
+    ctx.beginPath();
+    ctx.arc(
+      glow.baseCenter.x,
+      glow.baseCenter.y,
+      Math.max(1, Math.floor(glow.halfWidth + 2)),
+      0,
+      Math.PI * 2,
+    );
+    ctx.fillStyle = rgbCss(engineGlowBackingColor());
+    ctx.fill();
+    fillPolygon(
+      ctx,
+      [
+        {
+          x: glow.baseCenter.x + glow.right.x * glow.halfWidth,
+          y: glow.baseCenter.y + glow.right.y * glow.halfWidth,
+        },
+        {
+          x: glow.baseCenter.x - glow.right.x * glow.halfWidth,
+          y: glow.baseCenter.y - glow.right.y * glow.halfWidth,
+        },
+        { x: glow.apex.x, y: glow.apex.y },
+      ],
+      PALETTE.engine_glow,
+    );
+    // Shield ring (F4): a stocked charge shows outside the hull, so the
+    // player can see the next hit will be absorbed. Blinking with the
+    // ship above keeps the ring honest during the grace window too.
     if (p.shieldHits > 0) {
       chromaticCircle(ctx, PALETTE.powerup_shield, p.x, p.y, PLAYER_RADIUS + POWERUP_SHIELD_RING_GAP);
     }
@@ -241,6 +345,26 @@ function drawPlayer(ctx: CanvasRenderingContext2D, p: PlayerSnap, view: WorldVie
     ctx.textBaseline = "bottom";
     ctx.fillText(`${p.name} ×${p.lives}`, p.x, p.y - PLAYER_RADIUS - 6);
   }
+}
+
+/** asteroid.py's draw: the shaded body — tier-hue fill, two-band shadow
+ * crescent, highlight arc, seeded craters — bakes once per rock and
+ * rotates at draw time (canvas rotate(+spin·rad) and rotateDeg(+spin)
+ * share the y-down clockwise-positive convention, so bake and ink tumble
+ * in lockstep); the ink stack traces the rotated lumpy silhouette,
+ * keeping the black outline and red/cyan fringes on every frame. */
+function drawAsteroid(ctx: CanvasRenderingContext2D, a: AsteroidSnap, now: number): void {
+  const spin = spinAngleFor(a.id, now);
+  const bake = getRockBake(a.id, a.radius);
+  if (bake) {
+    const half = bake.width / 2;
+    ctx.save();
+    ctx.translate(a.x, a.y);
+    ctx.rotate((spin * Math.PI) / 180);
+    ctx.drawImage(bake, -half, -half);
+    ctx.restore();
+  }
+  chromaticPolygon(ctx, asteroidColor(a.radius), rockInkPoints(a, spin));
 }
 
 /** One world layer: paper fill, entities shaken at the draw origin only,
@@ -261,7 +385,7 @@ export function drawWorldLayer(
   ctx.translate(shakeDx, shakeDy);
 
   for (const a of snap.asteroids) {
-    chromaticCircle(ctx, asteroidColor(a.radius), a.x, a.y, a.radius);
+    drawAsteroid(ctx, a, view.now);
   }
   for (const pu of snap.powerups) {
     // The kind's identity color rings the pickup and stamps its initial —
@@ -282,6 +406,7 @@ export function drawWorldLayer(
   for (const p of snap.players) {
     drawPlayer(ctx, p, view);
   }
+  pruneShipClocks(snap.players.map((p) => p.id));
   view.floats.draw(ctx);
 
   ctx.restore();

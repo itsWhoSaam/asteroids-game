@@ -163,6 +163,7 @@ export class RoomGame {
       showNameTags: snap.players.length > 1 || this.youId === null,
       particles: this.particles,
       floats: this.floats,
+      now: performance.now() / 1000, // presentation clock (tumble, bank, plume)
     };
     const offset = this.shake.offset();
     drawWorldLayer(this.ctx, view, this.background, offset.x, offset.y);
