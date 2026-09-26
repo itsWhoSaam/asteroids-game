@@ -817,3 +817,17 @@ PLAYER_LINEAR_DAMPING = 0.5   # 1/s exponential drag (speed ~halves every 1.4 s)
 # of being the ship's only velocity, so it kicks toward the cap, not past
 # it. Every import reads this binding.
 DASH_IMPULSE = 340.0
+
+
+# --- Impulse collision response (physics overhaul) ------------------------------
+# Every body on the field carries a mass: rocks scale with area —
+# (radius / ASTEROID_MIN_RADIUS)^2, so a large rock outweighs a small one
+# nine to one — the ship is a fixed small body (one small rock's worth of
+# inertia), and the boss is a wall (inverse mass 0 — impulses move the
+# field, never the fight's anchor). Contacts resolve along the
+# center-to-center normal through the pure circleshape.resolve_contact:
+# an impulse proportional to the closing speed, then de-penetration
+# proportional to inverse mass. All numbers are playtest starting values;
+# none is structural.
+COLLISION_RESTITUTION = 0.85  # bounce share kept along the normal (1 = elastic)
+PLAYER_MASS = 1.0             # the ship weighs one small rock — hits move it

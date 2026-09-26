@@ -189,10 +189,15 @@ def test_shield_absorbs_exactly_one_hit_then_a_hit_costs_a_life(tmp_path):
 
     handle_collisions(asteroids, shots, player, game, powerups)
 
-    # absorbed: no life lost, no respawn, the charge is spent, rock alive
+    # absorbed: no life lost, no respawn, the charge is spent, rock alive.
+    # Physics overhaul: the contact's de-penetration shoves the hull out
+    # of the overlap (split by inverse mass), but no impulse moves it —
+    # both bodies were at rest — and nothing respawns it to center.
     assert game.lives == 3
     assert game.state == "playing"
-    assert player.position == pygame.Vector2(100, 660)
+    assert player.position != pygame.Vector2(
+        SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2
+    )
     assert player.velocity == pygame.Vector2(0, 0)
     assert not player.shielded
     assert len(asteroids) == 1

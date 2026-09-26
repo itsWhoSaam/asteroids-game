@@ -12,6 +12,7 @@ from constants import (
     PLAYER_BLINK_HZ,
     PLAYER_INVULNERABILITY_SECONDS,
     PLAYER_LINEAR_DAMPING,
+    PLAYER_MASS,
     PLAYER_MAX_SPEED,
     PLAYER_RADIUS,
     PLAYER_RETRO_FACTOR,
@@ -68,6 +69,13 @@ class Player(CircleShape):
     @property
     def invulnerable(self):
         return self.invulnerability_timer > 0
+
+    @property
+    def inverse_mass(self):
+        """The ship is a fixed small body (physics overhaul): one small
+        rock's worth of inertia, so a large rock's hit shoves the ship
+        hard while the rock barely notices."""
+        return 1.0 / PLAYER_MASS
 
     @property
     def has_rapid(self):
