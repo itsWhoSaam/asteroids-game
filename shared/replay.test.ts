@@ -61,8 +61,10 @@ describe("scripted replay — seed 1337, 1200 ticks (20s)", () => {
 
   it("pins the score trajectory", () => {
     // Score ratchets: every rock destroyed by the scripted fire adds its
-    // tier's points. The seeded rolls make this exact.
-    expect(w.players.p1?.score).toBe(350);
+    // tier's points. The seeded rolls make this exact. (Pins regenerated
+    // for the physics overhaul — the Newtonian ship and the rock pair pass
+    // deliberately move every trajectory.)
+    expect(w.players.p1?.score).toBe(820);
   });
 
   it("pins the wave trajectory", () => {
@@ -75,7 +77,7 @@ describe("scripted replay — seed 1337, 1200 ticks (20s)", () => {
   it("pins the economy trajectory", () => {
     // No purchases scripted — credits accumulate from mints alone at the
     // level-0 income multiplier (×1), so the ledger tracks the score.
-    expect(w.economy.credits).toBeCloseTo(350, 4);
+    expect(w.economy.credits).toBeCloseTo(820, 4);
   });
 
   it("replays identically — same seed, same trajectory", () => {
