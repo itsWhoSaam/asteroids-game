@@ -818,7 +818,9 @@ def help_keymap():
     handlers by tests/test_help.py.
     """
     rows = [
-        ("Ship", "W A S D", "thrust and rotate"),
+        ("Ship", "W", "thrust along the nose"),
+        ("Ship", "S", "retro thrust"),
+        ("Ship", "A / D", "rotate"),
         ("Ship", "Space", "shoot"),
         ("Ship", "Click", "chip the rock under the cursor"),
     ]

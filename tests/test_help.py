@@ -78,6 +78,18 @@ def test_every_polled_ship_key_in_the_keymap_is_read_by_the_player():
         assert key_const in src, f"Player.update never reads {key_const}"
 
 
+def test_ship_rows_document_the_newtonian_controls():
+    """The ship rows describe the velocity model (physics overhaul): W is
+    thrust along the nose, S retro-thrusts, A/D rotate — the wording the
+    README's controls table mirrors row for row."""
+    ship_rows = [
+        (keys, action) for group, keys, action in help_keymap() if group == "Ship"
+    ]
+    assert ("W", "thrust along the nose") in ship_rows
+    assert ("S", "retro thrust") in ship_rows
+    assert ("A / D", "rotate") in ship_rows
+
+
 def test_pump_routes_keys_to_the_shop_and_powerup_handlers():
     """The shop 1-4 and powerup 7-0 rows live because the pump really hands
     KEYDOWNs to Shop.handle_key and Shop.handle_powerup_key — the two
