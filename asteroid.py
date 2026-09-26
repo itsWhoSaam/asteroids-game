@@ -116,7 +116,7 @@ class Asteroid(CircleShape):
     # anchor: subclasses that must not evaporate (the boss) veto it.
     cullable = True
 
-    def __init__(self, x, y, radius):
+    def __init__(self, x, y, radius, shape_seed=None):
         super().__init__(x, y, radius)
         self.radius = radius
         # Click-chip state (idle core): accumulated click damage, plus the
@@ -131,14 +131,16 @@ class Asteroid(CircleShape):
         self.crack_seed = random.randrange(2**32)
         # Semi-3D presentation state (this PR): the lumpy silhouette's seed —
         # drawn from the same well as crack_seed and fixed at birth — plus
-        # the seeded tumble. The shaded bake renders lazily on first draw,
-        # so sim-only construction (the balance sim, sweeps) never touches
-        # surfaces; split children build fresh state like fresh chip_damage.
-        self.shape_seed = random.randrange(2**32)
-        self._silhouette = silhouette_points(radius, self.shape_seed)
-        self.spin_rate = spin_rate_for(self.shape_seed)  # deg/s, signed
+        # the seeded tumble. Set through the property: the silhouette, spin
+        # rate, and bake cache always re-derive together, so the fill, the
+        # outline, and the motion can never describe different rocks. The
+        # shaded bake renders lazily on first draw, so sim-only construction
+        # (the balance sim, sweeps) never touches surfaces; split children
+        # build fresh state like fresh chip_damage.
+        self.shape_seed = (
+            random.randrange(2**32) if shape_seed is None else shape_seed
+        )
         self.spin_angle = 0.0
-        self._bake = None
         self.despawned = False
         self.mintable = True
         # Run stats (run-stats PR): the kill source the mint poll reports —
@@ -151,6 +153,21 @@ class Asteroid(CircleShape):
     def chip_threshold(self):
         """Chip damage this rock absorbs before dying, by size tier."""
         return chip_threshold_for(self.radius)
+
+    @property
+    def shape_seed(self):
+        """The silhouette/crater/tumble seed. Assignment re-derives every
+        presentation cache it feeds (the proof scripts and tests pin seeds
+        through this), so a rock reseeded mid-flight keeps one coherent
+        shape — fill, outline, craters, and spin all move together."""
+        return self._shape_seed
+
+    @shape_seed.setter
+    def shape_seed(self, seed):
+        self._shape_seed = seed
+        self._silhouette = silhouette_points(self.radius, seed)
+        self.spin_rate = spin_rate_for(seed)  # deg/s, signed
+        self._bake = None
 
     def take_hit(self, hits=1):
         """One player-or-drone shot's worth of damage; True when this call
