@@ -115,6 +115,21 @@ class Asteroid(CircleShape):
         """Chip damage this rock absorbs before dying, by size tier."""
         return chip_threshold_for(self.radius)
 
+    @property
+    def inverse_mass(self):
+        """Rocks weigh by area (physics overhaul): (radius /
+        ASTEROID_MIN_RADIUS)^2, so a large rock outweighs a small one nine
+        to one and the contact math moves the light one more."""
+        return (ASTEROID_MIN_RADIUS / self.radius) ** 2
+
+    def effective_velocity(self):
+        """Momentum velocity for contact math (physics overhaul): a
+        chrono-slowed rock carries velocity × speed_scale, so slow motion
+        hits heavy, not floaty. The scale's exact-restore contract is
+        untouched — update_world still publishes it and expiry still
+        divides it back out."""
+        return self.velocity * self.speed_scale
+
     def take_hit(self, hits=1):
         """One player-or-drone shot's worth of damage; True when this call
         destroyed the asteroid (the sweep pays the kill exactly once).
@@ -230,6 +245,13 @@ class Boss(Asteroid):
         # Hit feedback (capstone): a landed shot lights the hull for a
         # blink — dt-decayed in update, so a pause holds the flash too.
         self.hit_flash = 0.0
+
+    @property
+    def inverse_mass(self):
+        """The boss is a wall (physics overhaul): infinite mass, so the
+        fight's anchor never moves for a contact — its edge-slide clamp
+        stays the only drift."""
+        return 0.0
 
     def take_hit(self, hits=1):
         """One player shot's worth of damage; True only when this kills.
