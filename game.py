@@ -286,12 +286,18 @@ class Game:
         if self.daily and self.daily_day is not None:
             if record_daily_score(self.daily_day, self._score.current,
                                   path=self.save_path):
-                self._daily_best = self._score.current
                 log_event(
                     "daily_best",
                     date=daily_slug(self.daily_day),
                     score=self._score.current,
                 )
+            # The readout serves the day's standing best whether this run
+            # set it or not: a worse run leaves the day's best on the dial
+            # (the merge write only lands when the run beats it), and the
+            # cache must not sit at its boot value — which is *today's*
+            # best, not necessarily this run's stamped date's.
+            self._daily_best = load_daily_best(self.daily_day,
+                                               path=self.save_path)
         log_event("game_over", score=self.score, high_score=self.high_score)
         sound.play(sound.SFX_GAME_OVER)  # F6: the run winding down
 
