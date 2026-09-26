@@ -1,18 +1,22 @@
+import math
+
 import pygame
 import blackhole
 from circleshape import CircleShape
 from constants import (
     DASH_COOLDOWN_S,
-    DASH_DECAY,
     DASH_IMPULSE,
     DASH_IFRAME_S,
     LINE_WIDTH,
     PALETTE,
     PLAYER_BLINK_HZ,
     PLAYER_INVULNERABILITY_SECONDS,
+    PLAYER_LINEAR_DAMPING,
+    PLAYER_MAX_SPEED,
     PLAYER_RADIUS,
+    PLAYER_RETRO_FACTOR,
     PLAYER_SHOOT_SPEED,
-    PLAYER_SPEED,
+    PLAYER_THRUST_ACCEL,
     PLAYER_TURN_SPEED,
     PLAYER_SHOOT_COOLDOWN_SECONDS,
     PLAYER_SHOOT_COOLDOWN_FLOOR_SECONDS,
@@ -47,9 +51,9 @@ class Player(CircleShape):
         self.powerup_timers = {}
         self.shield_hits = 0
         self.rotation = 0
-        # Dash (insanity core): the impulse is the ship's only velocity —
-        # movement is otherwise direct position stepping — and dash_timer
-        # is the shared cooldown + decay clock.
+        # Dash (insanity core): dash_timer is the shared cooldown + decay
+        # clock for the impulse dash() fires along the nose — the velocity
+        # it adds is the same one the thrust integrator carries now.
         self.velocity = pygame.Vector2(0, 0)
         self.dash_timer = 0.0
         # Bomb pickup (insanity chaos): main injects the field-clear
@@ -206,12 +210,12 @@ class Player(CircleShape):
         """SHIFT (insanity core): an impulse along the nose with brief
         i-frames. False while cooling down.
 
-        The impulse is the ship's only velocity, and it owns its decay
-        (update bleeds it while the cooldown clock runs). I-frames ride the
-        existing invulnerability timer via max() — a respawn grace is never
-        shortened, and the blink draw already shows the safe window. The
-        combo break is the caller's wiring (main.try_dash): the ship does
-        not own run state."""
+        The impulse adds into the velocity the ship carries, and the
+        shared integrator bleeds it while the cooldown clock runs. I-frames
+        ride the existing invulnerability timer via max() — a respawn grace
+        is never shortened, and the blink draw already shows the safe
+        window. The combo break is the caller's wiring (main.try_dash): the
+        ship does not own run state."""
         if self.dash_timer > 0:
             return False
         self.dash_timer = DASH_COOLDOWN_S
@@ -223,21 +227,22 @@ class Player(CircleShape):
         return True
 
     def update(self, dt):
+        # A frozen frame (hit-stop, pause) steps dt=0: integrate nothing —
+        # no thrust, no damping, no pull, no cooldown ticks, no trigger
+        # pull. Everything below advances only on positive dt.
+        if dt <= 0:
+            return
         keys = pygame.key.get_pressed()
         self.shot_cooldown_timer -= dt
         self.invulnerability_timer -= dt
         self._tick_powerups(dt)
 
-        # Dash glide (insanity core): the impulse bleeds off exponentially
-        # while the cooldown clock runs — the visible glide is the first
-        # DASH_DECAY_S — and when the clock empties, the velocity is
-        # zeroed so the ship handles normally again. A frozen frame
-        # (hit-stop) steps dt=0: no glide, no decay, no cooldown tick.
+        # Dash cooldown (insanity core): the clock drains on sim time, and
+        # when it empties the dash's velocity is zeroed so the ship handles
+        # normally again. The glide's position step and decay ride the
+        # shared integrator below now.
         if self.dash_timer > 0:
             self.dash_timer = max(0.0, self.dash_timer - dt)
-            self.position += self.velocity * dt
-            if self.velocity.length() > 0:
-                self.velocity *= DASH_DECAY ** dt
             if self.dash_timer == 0:
                 self.velocity.update((0, 0))  # glide over: clean handback
 
@@ -249,19 +254,44 @@ class Player(CircleShape):
             self.rotate(-dt * sign)
         if keys[pygame.K_d]:
             self.rotate(dt * sign)
+
+        # Newtonian thrust (physics overhaul): W accelerates along the nose,
+        # S retro-thrusts at a fraction of it, and the velocity they build
+        # persists between frames — releasing the keys leaves the ship
+        # coasting on its momentum.
+        nose = pygame.Vector2(0, 1).rotate(self.rotation)
+        accel = pygame.Vector2(0, 0)
         if keys[pygame.K_w]:
-            self.move(dt * sign)
+            accel += nose * PLAYER_THRUST_ACCEL
         if keys[pygame.K_s]:
-            self.move(-dt * sign)
-        # Insanity threats: gravity drifts the ship toward any live well at
-        # half strength (BLACK_HOLE_PLAYER_FACTOR) — a position drift, not
-        # velocity: the dash owns the only velocity the ship has.
-        self.position += blackhole.pull_at(self.position, player=True) * dt
-        # A held space fires on the cooldown clock, which only advances on
-        # sim time. A frozen frame (hit-stop) steps dt=0: firing here would
-        # machine-gun stacked shots at a paused cooldown, so a zero-dt
-        # frame never pulls the trigger.
-        if keys[pygame.K_SPACE] and dt > 0:
+            accel -= nose * PLAYER_THRUST_ACCEL * PLAYER_RETRO_FACTOR
+        self.velocity += accel * sign * dt
+        # Insanity threats: gravity accelerates the ship toward any live
+        # well at half strength (BLACK_HOLE_PLAYER_FACTOR) — integrated
+        # into velocity like every other body in the field now, not a
+        # position drift.
+        self.velocity += blackhole.pull_at(self.position, player=True) * dt
+        # Light linear damping: gentle space drag that bleeds all of the
+        # ship's momentum — thrust, dash, pull — back toward rest.
+        self.velocity *= math.exp(-PLAYER_LINEAR_DAMPING * dt)
+        # Speed ceiling: anti-tunnel by arithmetic — the worst clamped frame
+        # moves PLAYER_MAX_SPEED * MAX_DT = 36 px, inside the 40 px minimum
+        # contact overlap, so overlap can't be jumped over. The guard keeps
+        # the clamp off a stationary ship (pygame refuses zero-length
+        # clamping, and a zero vector is under the cap anyway).
+        if self.velocity.length() > PLAYER_MAX_SPEED:
+            self.velocity = self.velocity.clamp_magnitude(PLAYER_MAX_SPEED)
+        self.position += self.velocity * dt
+        # Ship-only wrap: the ship is the one body that re-enters the
+        # opposite edge — rocks, shots, pickups, and saucers cull, and the
+        # destruction diff depends on that. The hull radius is the margin:
+        # the ship fully leaves one side before re-entering the other.
+        self.wrap()
+
+        # A held space fires on the cooldown clock. The dt>0 guard above
+        # already keeps a frozen frame from machine-gunning stacked shots
+        # at a paused cooldown.
+        if keys[pygame.K_SPACE]:
             self.shoot()
 
     def _tick_powerups(self, dt):
@@ -310,8 +340,17 @@ class Player(CircleShape):
         if self.stats is not None:
             self.stats.record_shot()
 
-    def move (self, dt):
-        unit_vector = pygame.Vector2(0, 1)
-        rotated_vector = unit_vector.rotate(self.rotation)
-        rotated_with_speed_vector = rotated_vector * PLAYER_SPEED * dt
-        self.position += rotated_with_speed_vector
+    def wrap(self):
+        """Ship-only screen wrap (physics overhaul): the hull radius is the
+        margin — the ship fully leaves one side before re-entering the
+        other. Rocks, shots, pickups, and saucers cull instead, and the
+        destruction diff depends on that, so wrap never leaves the ship."""
+        margin = self.radius
+        if self.position.x < -margin:
+            self.position.x = SCREEN_WIDTH + margin
+        elif self.position.x > SCREEN_WIDTH + margin:
+            self.position.x = -margin
+        if self.position.y < -margin:
+            self.position.y = SCREEN_HEIGHT + margin
+        elif self.position.y > SCREEN_HEIGHT + margin:
+            self.position.y = -margin
